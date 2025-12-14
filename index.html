@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Maestro Blocks</title>
+    
+    <!-- Preconnect to Google Fonts for performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Platform detection for macOS window styling -->
+    <script>
+      (function() {
+        // Detect platform for native window integration
+        var platform = navigator.platform.toLowerCase();
+        if (platform.includes('mac')) {
+          document.documentElement.setAttribute('data-platform', 'macos');
+        } else if (platform.includes('win')) {
+          document.documentElement.setAttribute('data-platform', 'windows');
+        } else if (platform.includes('linux')) {
+          document.documentElement.setAttribute('data-platform', 'linux');
+        }
+        
+        // Prevent flash of wrong theme
+        var theme = localStorage.getItem('theme');
+        if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
+  </head>
+
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
