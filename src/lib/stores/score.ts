@@ -6,7 +6,7 @@
  */
 
 import { createStore, produce } from 'solid-js/store';
-import { createMemo } from 'solid-js';
+import { createMemo, createSignal } from 'solid-js';
 import type {
   Score,
   WorksheetSection,
@@ -35,10 +35,18 @@ import { generateChordPitchesRust } from '../services/music';
 
 const [score, setScore] = createStore<Score>(createEmptyScore());
 
+// Render version signal - increment to force re-renders after deep mutations
+const [renderVersion, setRenderVersion] = createSignal(0);
+
 export const scoreStore = {
   /** Get the current score state (reactive) */
   get state() {
     return score;
+  },
+
+  /** Render version - increment to force re-renders after deep mutations */
+  get renderVersion() {
+    return renderVersion();
   },
 
   /** Reset to empty score */
@@ -239,17 +247,105 @@ export const scoreStore = {
     const section = score.sections.find((s) => s.id === sectionId);
     return section?.staff.measures.find((m) => m.id === measureId);
   },
+
+  /** Update an existing chord with new definition (for live editing) */
+  async updateChord(
+    sectionId: string,
+    elementId: string,
+    chordDef: ChordDefinition,
+    rootOctave: number = 4
+  ): Promise<void> {
+    // Generate new pitches from Rust backend
+    const { pitches, displayName } = await generateChordPitchesRust(
+      chordDef,
+      rootOctave as 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+    );
+
+    setScore(
+      produce((s) => {
+        const section = s.sections.find((sec) => sec.id === sectionId);
+        if (!section) return;
+
+        for (const measure of section.staff.measures) {
+          const element = measure.elements.find((el) => el.id === elementId);
+          if (element && element.type === 'chord') {
+            // Update the chord element
+            element.pitches = pitches;
+            element.chordDef = chordDef;
+            element.displayName = displayName;
+
+            // Update the associated answer box
+            const answerBox = section.answerBoxes.find(
+              (box) => box.chordElementId === elementId
+            );
+            if (answerBox) {
+              answerBox.correctAnswer = displayName;
+            }
+            break;
+          }
+        }
+      })
+    );
+    
+    // Increment render version to trigger re-render
+    setRenderVersion((v) => v + 1);
+},
+
+  /** Find which section and measure contain an element */
+  findElementLocation(elementId: string): { sectionId: string; measureId: string } | null {
+    for (const section of score.sections) {
+      for (const measure of section.staff.measures) {
+        if (measure.elements.some((el) => el.id === elementId)) {
+          return { sectionId: section.id, measureId: measure.id };
+        }
+      }
+    }
+    return null;
+  },
+
+  /** Get a chord element by ID */
+  getChordElement(elementId: string): ChordElement | null {
+    for (const section of score.sections) {
+      for (const measure of section.staff.measures) {
+        const element = measure.elements.find((el) => el.id === elementId);
+        if (element && element.type === 'chord') {
+          return element;
+        }
+      }
+    }
+    return null;
+  },
 };
 
 // ============================================================================
 // EDITOR STATE STORE
 // ============================================================================
 
-const [editor, setEditor] = createStore<EditorState>({
+// Popup anchor position for chord editor
+export interface PopupAnchor {
+  x: number;
+  y: number;
+  sectionId: string;
+  measureId: string;
+}
+
+// Extended editor state with chord popup support
+interface ExtendedEditorState extends EditorState {
+  selectedChordId: string | null;
+  popupAnchor: PopupAnchor | null;
+  lastQuality: ChordQuality;
+  lastInversion: 'root' | '1' | '2' | '3';
+}
+
+const [editor, setEditor] = createStore<ExtendedEditorState>({
   cursor: null,
   selection: { type: 'none', elementIds: [] },
   activeTool: { type: 'chord', quality: 'major' },
   hoverPitch: null,
+  selectedChordId: null,
+  popupAnchor: null,
+  lastQuality: 'major',
+  lastInversion: 'root',
 });
 
 export const editorStore = {
@@ -286,6 +382,47 @@ export const editorStore = {
   /** Move cursor to position */
   setCursor(sectionId: string, measureNumber: number, beat: number = 0) {
     setEditor('cursor', { sectionId, measureNumber, beat });
+  },
+
+  // ========== CHORD EDITOR POPUP ==========
+
+  /** Select a chord and open the popup editor */
+  selectChord(chordId: string, anchor: PopupAnchor) {
+    setEditor({
+      selectedChordId: chordId,
+      popupAnchor: anchor,
+      selection: { type: 'element', elementIds: [chordId] },
+    });
+  },
+
+  /** Deselect chord and close popup */
+  deselectChord() {
+    setEditor({
+      selectedChordId: null,
+      popupAnchor: null,
+      selection: { type: 'none', elementIds: [] },
+    });
+  },
+
+  /** Check if popup is open */
+  get isPopupOpen() {
+    return editor.selectedChordId !== null;
+  },
+
+  /** Update last-used quality and inversion (persisted for Shift+click) */
+  setLastUsed(quality: ChordQuality, inversion: 'root' | '1' | '2' | '3') {
+    setEditor({
+      lastQuality: quality,
+      lastInversion: inversion,
+    });
+  },
+
+  /** Get last-used settings for quick placement */
+  get lastUsedSettings() {
+    return {
+      quality: editor.lastQuality,
+      inversion: editor.lastInversion,
+    };
   },
 };
 

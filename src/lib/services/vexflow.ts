@@ -31,7 +31,7 @@ export const LAYOUT = {
   // Staff dimensions - US Letter proportions (8.5:11 aspect ratio)
   // At 96 DPI: 816 x 1056 pixels, but we use a scaled version
   STAFF_WIDTH: 680,
-  STAFF_HEIGHT: 140,   // Height per system (staff line)
+  STAFF_HEIGHT: 200,   // Height per system (staff line) - extra space for ledger lines and answer boxes
   STAVE_Y: 50,         // Treble clef extends ~40px above top line, plus padding
   
   // Multi-system layout
@@ -305,7 +305,8 @@ export function renderSection(
   showAnswers: boolean,
   timeSignature: TimeSignature,
   keySignature: number = 0,
-  scale: number = 1.0
+  scale: number = 1.0,
+  selectedChordId: string | null = null
 ): RenderResult {
   const numMeasures = section.staff.measures.length;
   const measuresPerSystem = LAYOUT.MEASURES_PER_SYSTEM;
@@ -398,7 +399,8 @@ export function renderSection(
         
         for (const element of chordElements) {
           if (element.type === 'chord') {
-            const staveNote = createChordStaveNote(element.pitches, element.duration, showAnswers);
+            const isSelected = element.id === selectedChordId;
+            const staveNote = createChordStaveNote(element.pitches, element.duration, showAnswers, isSelected);
             
             const voice = new Voice({ numBeats: timeSignature.beats, beatValue: timeSignature.beatType }).setStrict(false);
             voice.addTickables([staveNote]);
@@ -489,7 +491,8 @@ function drawSystemMeasureLines(
 function createChordStaveNote(
   pitches: Pitch[],
   duration: { value: number; dots: number },
-  showAnswers: boolean
+  showAnswers: boolean,
+  isSelected: boolean = false
 ): StaveNote {
   // Convert duration to VexFlow format
   const durationMap: Record<number, string> = {
@@ -518,8 +521,13 @@ function createChordStaveNote(
     }
   });
   
-  // Always render chords solid black for worksheet creation mode
-  // Future: add ghost/preview styling for quiz mode when showAnswers is false
+  // Apply selection styling if this chord is selected
+  if (isSelected) {
+    note.setStyle({
+      fillStyle: '#B8860B',   // Dark goldenrod - visible on both light/dark
+      strokeStyle: '#B8860B',
+    });
+  }
   
   return note;
 }

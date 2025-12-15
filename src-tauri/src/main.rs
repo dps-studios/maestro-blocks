@@ -3,20 +3,35 @@
 
 mod commands;
 mod music;
+mod audio;
 mod types;
 
+use std::sync::Mutex;
 use commands::lilypond::render_lilypond;
 use commands::worksheet::{generate_worksheet, generate_chord_naming_template};
 use commands::music::{generate_chord_pitches, get_chord_qualities};
+use commands::audio::{AudioState, init_audio, play_chord, play_notes, stop_audio, set_volume, reset_voicing, play_one_shot};
 
 fn main() {
     tauri::Builder::default()
+        .manage(AudioState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
+            // LilyPond commands
             render_lilypond,
+            // Worksheet generation commands
             generate_worksheet,
             generate_chord_naming_template,
+            // Music theory commands
             generate_chord_pitches,
-            get_chord_qualities
+            get_chord_qualities,
+            // Audio playback commands
+            init_audio,
+            play_chord,
+            play_notes,
+            stop_audio,
+            set_volume,
+            reset_voicing,
+            play_one_shot,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

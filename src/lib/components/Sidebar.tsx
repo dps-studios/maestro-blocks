@@ -1,37 +1,12 @@
-import { Show, For } from 'solid-js';
+import { Show } from 'solid-js';
 import { scoreStore, editorStore } from '../stores/score';
-import type { ChordQuality, WorksheetSection } from '../types/score';
+import type { WorksheetSection } from '../types/score';
 
 export default function Sidebar() {
   // Reactive store accessors
   const showAnswers = () => scoreStore.state.showAnswers;
   const sections = () => scoreStore.state.sections;
-  const activeTool = () => editorStore.state.activeTool;
-
-  // Chord qualities grouped by type with tier assignments
-  const triadQualities: { value: ChordQuality; label: string; tier: number }[] = [
-    { value: 'major', label: 'Major', tier: 0 },
-    { value: 'minor', label: 'Minor', tier: 0 },
-    { value: 'diminished', label: 'Dim', tier: 2 },
-    { value: 'augmented', label: 'Aug', tier: 2 },
-  ];
-
-  const seventhQualities: { value: ChordQuality; label: string; tier: number }[] = [
-    { value: 'major7', label: 'Maj7', tier: 1 },
-    { value: 'minor7', label: 'Min7', tier: 1 },
-    { value: 'dominant7', label: 'Dom7', tier: 1 },
-    { value: 'diminished7', label: 'Dim7', tier: 2 },
-    { value: 'half-diminished7', label: 'Half-dim7', tier: 2 },
-  ];
-
-  const suspendedQualities: { value: ChordQuality; label: string; tier: number }[] = [
-    { value: 'sus2', label: 'Sus2', tier: 1 },
-    { value: 'sus4', label: 'Sus4', tier: 1 },
-  ];
-
-  function selectChordQuality(quality: ChordQuality) {
-    editorStore.setChordQuality(quality);
-  }
+  const selectedChordId = () => editorStore.state.selectedChordId;
 
   function addStaffLine() {
     if (sections().length === 0) {
@@ -48,10 +23,6 @@ export default function Sidebar() {
     scoreStore.toggleAnswers();
   }
 
-  function isActiveQuality(quality: ChordQuality): boolean {
-    return activeTool().type === 'chord' && (activeTool() as { type: 'chord'; quality: ChordQuality }).quality === quality;
-  }
-
   function countChords(sectionList: WorksheetSection[]): number {
     return sectionList.reduce((sum, s) => 
       sum + s.staff.measures.reduce((mSum, m) => 
@@ -60,21 +31,12 @@ export default function Sidebar() {
     );
   }
 
-  function getTierClass(tier: number, isActive: boolean): string {
-    if (isActive) {
-      switch (tier) {
-        case 0: return 'tier-safe-active';
-        case 1: return 'tier-colorful-active';
-        case 2: return 'tier-bold-active';
-        default: return 'tier-neutral-active';
-      }
-    }
-    switch (tier) {
-      case 0: return 'tier-safe';
-      case 1: return 'tier-colorful';
-      case 2: return 'tier-bold';
-      default: return 'tier-neutral';
-    }
+  // Get display name of currently selected chord
+  function getSelectedChordName(): string {
+    const chordId = selectedChordId();
+    if (!chordId) return '';
+    const chord = scoreStore.getChordElement(chordId);
+    return chord?.displayName ?? '';
   }
 
   return (
@@ -110,90 +72,31 @@ export default function Sidebar() {
         </div>
       </section>
 
-      {/* Chord Quality Selection */}
+      {/* Instructions */}
       <section class="sidebar-section">
-        <h3 class="section-header">Chord Quality</h3>
-        <p class="section-hint">Select a quality, then click on the staff to place a chord.</p>
-
-        <div class="quality-group">
-          <h4 class="group-label">Triads</h4>
-          <div class="quality-buttons">
-            <For each={triadQualities}>
-              {(q) => (
-                <button
-                  class={`quality-btn ${getTierClass(q.tier, isActiveQuality(q.value))} ${isActiveQuality(q.value) ? 'active' : ''}`}
-                  onClick={() => selectChordQuality(q.value)}
-                >
-                  {q.label}
-                </button>
-              )}
-            </For>
-          </div>
-        </div>
-
-        <div class="quality-group">
-          <h4 class="group-label">Seventh Chords</h4>
-          <div class="quality-buttons">
-            <For each={seventhQualities}>
-              {(q) => (
-                <button
-                  class={`quality-btn ${getTierClass(q.tier, isActiveQuality(q.value))} ${isActiveQuality(q.value) ? 'active' : ''}`}
-                  onClick={() => selectChordQuality(q.value)}
-                >
-                  {q.label}
-                </button>
-              )}
-            </For>
-          </div>
-        </div>
-
-        <div class="quality-group">
-          <h4 class="group-label">Suspended</h4>
-          <div class="quality-buttons">
-            <For each={suspendedQualities}>
-              {(q) => (
-                <button
-                  class={`quality-btn ${getTierClass(q.tier, isActiveQuality(q.value))} ${isActiveQuality(q.value) ? 'active' : ''}`}
-                  onClick={() => selectChordQuality(q.value)}
-                >
-                  {q.label}
-                </button>
-              )}
-            </For>
-          </div>
+        <h3 class="section-header">How to Use</h3>
+        <div class="instructions">
+          <p class="instruction-item">
+            <strong>Click</strong> on a measure to place a chord and open the editor
+          </p>
+          <p class="instruction-item">
+            <strong>Shift+Click</strong> for quick placement using last settings
+          </p>
+          <p class="instruction-item">
+            <strong>Escape</strong> to close the chord editor
+          </p>
         </div>
       </section>
 
-      {/* Current Tool Info */}
-      <section class="sidebar-section">
-        <h3 class="section-header">Current Tool</h3>
-        <div class="tool-info">
-          <Show 
-            when={activeTool().type === 'chord'}
-            fallback={
-              <>
-                <div class="tool-badge select">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
-                  </svg>
-                  <span>Select</span>
-                </div>
-                <p class="tool-hint">Click elements to select them</p>
-              </>
-            }
-          >
-            <div class="tool-badge chord">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M9 18V5l12-2v13"/>
-                <circle cx="6" cy="18" r="3"/>
-                <circle cx="18" cy="16" r="3"/>
-              </svg>
-              <span>{(activeTool() as { type: 'chord'; quality: string }).quality} chord</span>
-            </div>
-            <p class="tool-hint">Click on a measure to place this chord</p>
-          </Show>
-        </div>
-      </section>
+      {/* Selected Chord Info */}
+      <Show when={selectedChordId()}>
+        <section class="sidebar-section">
+          <h3 class="section-header">Selected Chord</h3>
+          <div class="selected-chord-info">
+            <span class="chord-name">{getSelectedChordName()}</span>
+          </div>
+        </section>
+      </Show>
 
       {/* Score Info */}
       <Show when={sections().length > 0}>

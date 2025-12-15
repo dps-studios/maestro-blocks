@@ -491,3 +491,149 @@ html[data-platform="macos"] body {
   height: 40px;
   border-width: 3px;
 }
+
+/* ==========================================================================
+   CHORD EDITOR POPUP
+   ========================================================================== */
+
+.chord-editor-popup {
+  position: fixed;
+  z-index: 1000;
+  transform: translateX(-50%) translateY(-100%);
+}
+
+.chord-editor-popup__arrow {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid var(--color-paper);
+  filter: drop-shadow(0 1px 1px rgba(44, 36, 22, 0.1));
+}
+
+.chord-editor-popup__content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-paper);
+  border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.chord-editor-popup__select {
+  appearance: none;
+  padding: var(--space-1-5) var(--space-6) var(--space-1-5) var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-ink);
+  background-color: var(--color-paper-dark);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235A4D3A' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-2) center;
+  border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: var(--transition-colors);
+}
+
+.chord-editor-popup__select:hover {
+  background-color: var(--color-paper-darker);
+  border-color: var(--color-ink-muted);
+}
+
+.chord-editor-popup__select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
+  border-color: var(--color-accent-gold);
+}
+
+.chord-editor-popup__select--quality {
+  min-width: 70px;
+}
+
+.chord-editor-popup__delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin-left: var(--space-1);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-error);
+  cursor: pointer;
+  transition: var(--transition-colors);
+}
+
+.chord-editor-popup__delete:hover {
+  background-color: var(--color-error-bg);
+  border-color: var(--color-error);
+}
+
+.chord-editor-popup__delete:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(155, 59, 59, 0.3);
+}
+
+/* Dark mode adjustments */
+:root.dark .chord-editor-popup__arrow {
+  border-top-color: var(--color-paper);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
+}
+
+:root.dark .chord-editor-popup__select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23B8B0A0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+/* ==========================================================================
+   SELECTED CHORD HIGHLIGHTING
+   ========================================================================== */
+
+/* VexFlow uses SVG - we'll color noteheads and stems via inline styles.
+   This class is for any wrapper elements if needed. */
+.chord-selected {
+  /* Applied via VexFlow setStyle() - noteheads turn accent gold */
+}
+
+/* ==========================================================================
+   SIDEBAR INSTRUCTIONS & SELECTED CHORD
+   ========================================================================== */
+
+.instructions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.instruction-item {
+  font-size: var(--text-sm);
+  color: var(--color-ink-muted);
+  line-height: 1.4;
+}
+
+.instruction-item strong {
+  color: var(--color-ink);
+  font-weight: var(--font-semibold);
+}
+
+.selected-chord-info {
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-paper-dark);
+  border: 1px solid var(--color-accent-gold);
+  border-radius: var(--radius-md);
+}
+
+.selected-chord-info .chord-name {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--color-accent-gold);
+}

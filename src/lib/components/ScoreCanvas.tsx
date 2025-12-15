@@ -6,13 +6,19 @@ import {
   pitchToYPosition,
   type StaffCoordinates,
 } from '../services/vexflow';
-import type { WorksheetSection, Pitch } from '../types/score';
+import { generateChordPitchesRust } from '../services/music';
+import type { WorksheetSection, Pitch, ChordElement, ChordDefinition } from '../types/score';
+import ChordEditorPopup from './ChordEditorPopup';
 
 export default function ScoreCanvas() {
   // Reactive state
   const [isLoading, setIsLoading] = createSignal(true);
   const [staffCoordinates, setStaffCoordinates] = createSignal<Map<string, StaffCoordinates>>(new Map());
   const [isPlacingChord, setIsPlacingChord] = createSignal(false);
+  
+  // Cursor/interaction mode state
+  const [hoverHasChord, setHoverHasChord] = createSignal(false);
+  const [isInsertMode, setIsInsertMode] = createSignal(false); // True after double-click on measure with chord
   
   // Ghost note state - pixel-perfect positioning
   const [ghostNote, setGhostNote] = createSignal<{ 
@@ -39,13 +45,16 @@ export default function ScoreCanvas() {
   const timeSignature = () => scoreStore.state.timeSignature;
   const showAnswers = () => scoreStore.state.showAnswers;
   const activeTool = () => editorStore.state.activeTool;
+  const selectedChordId = () => editorStore.state.selectedChordId;
 
   // Re-render when score changes - use explicit dependency tracking
   // This prevents the effect from running on unrelated store changes
   createEffect(
     on(
       // Explicit dependencies - only re-run when these change
-      () => [sections(), showAnswers(), timeSignature(), keyFifths()] as const,
+      // Include selectedChordId to re-render when selection changes
+      // Include renderVersion to re-render after deep store mutations (e.g., updateChord)
+      () => [sections(), showAnswers(), timeSignature(), keyFifths(), selectedChordId(), scoreStore.renderVersion] as const,
       () => {
         if (!isLoading() && sections().length > 0) {
           const now = Date.now();
@@ -78,7 +87,7 @@ export default function ScoreCanvas() {
       container.innerHTML = '';
       
       try {
-        const result = renderSection(section, showAnswers(), timeSignature(), keyFifths());
+        const result = renderSection(section, showAnswers(), timeSignature(), keyFifths(), 1.0, selectedChordId());
         container.appendChild(result.svg);
         newCoords.set(section.id, result.coordinates);
       } catch (error) {
@@ -99,15 +108,66 @@ export default function ScoreCanvas() {
     return map;
   }
 
-  // Handle staff click - place chord at ghost note position
-  async function handleStaffClick(_event: MouseEvent, section: WorksheetSection) {
+  // Find chord element at click position
+  function findChordAtPosition(section: WorksheetSection, measureIndex: number): ChordElement | null {
+    const measure = section.staff.measures[measureIndex];
+    if (!measure) return null;
+    
+    // For now, return the first chord in the measure (single chord per measure)
+    // TODO: When supporting multiple chords per measure, use x-position to determine which
+    const chord = measure.elements.find(el => el.type === 'chord');
+    return chord as ChordElement | null;
+  }
+
+  // Get the screen Y position of the top note of a chord
+  function getTopNoteScreenY(
+    pitches: Pitch[],
+    section: WorksheetSection,
+    measureIndex: number
+  ): number | null {
+    const coords = staffCoordinates().get(section.id);
+    if (!coords) return null;
+
+    const containers = getStaffContainers();
+    const container = containers.get(section.id);
+    if (!container) return null;
+
+    const svg = container.querySelector('svg');
+    if (!svg) return null;
+
+    const svgRect = svg.getBoundingClientRect();
+    const measureBound = coords.measureBounds[measureIndex];
+    if (!measureBound) return null;
+
+    // Find highest pitch (highest on staff = lowest Y value in screen coords)
+    const topPitch = pitches.reduce((highest, p) => {
+      // Compare by octave first, then by note position within octave
+      const noteOrder: Record<string, number> = { c: 0, d: 1, e: 2, f: 3, g: 4, a: 5, b: 6 };
+      const pValue = p.octave * 7 + noteOrder[p.note];
+      const hValue = highest.octave * 7 + noteOrder[highest.note];
+      return pValue > hValue ? p : highest;
+    }, pitches[0]);
+
+    // Convert pitch to VexFlow Y coordinate
+    const systemCoords = {
+      ...coords,
+      staffTopY: measureBound.staffTopY,
+      staffBottomY: measureBound.staffBottomY,
+    };
+    const vexY = pitchToYPosition(topPitch, systemCoords, section.staff.clef);
+
+    // Scale to screen coordinates
+    const scaleY = svgRect.height / coords.totalHeight;
+    return svgRect.top + vexY * scaleY;
+  }
+
+  // Handle staff click - select existing chord or create new one
+  async function handleStaffClick(event: MouseEvent, section: WorksheetSection) {
     // Prevent multiple rapid clicks
     if (isPlacingChord()) {
       console.log('[ScoreCanvas] Click ignored - chord placement in progress');
       return;
     }
-    
-    if (activeTool().type !== 'chord') return;
     
     const ghost = ghostNote();
     if (!ghost || ghost.sectionId !== section.id) return;
@@ -115,20 +175,87 @@ export default function ScoreCanvas() {
     const measure = section.staff.measures[ghost.measureIndex];
     if (!measure) return;
 
+    // Check if there's an existing chord at this position
+    const existingChord = findChordAtPosition(section, ghost.measureIndex);
+    
+    if (existingChord && !isInsertMode()) {
+      // Single click on existing chord → SELECT it
+      // Position popup above top note of chord
+      const topNoteY = getTopNoteScreenY(existingChord.pitches, section, ghost.measureIndex);
+      const anchorX = event.clientX;
+      const anchorY = topNoteY !== null ? topNoteY - 15 : event.clientY - 40;
+      
+      editorStore.selectChord(existingChord.id, {
+        x: anchorX,
+        y: anchorY,
+        sectionId: section.id,
+        measureId: measure.id,
+      });
+      
+      console.log('[ScoreCanvas] Selected existing chord:', existingChord.id);
+      return;
+    }
+
+    // No existing chord OR in insert mode - create new chord
+    await placeNewChord(event, section, measure, ghost);
+  }
+
+  // Handle double-click - enter insert mode (to add chord even if one exists)
+  function handleStaffDoubleClick(event: MouseEvent, section: WorksheetSection) {
+    const ghost = ghostNote();
+    if (!ghost || ghost.sectionId !== section.id) return;
+
+    const existingChord = findChordAtPosition(section, ghost.measureIndex);
+    
+    if (existingChord) {
+      // Double-click on measure with chord → enter insert mode
+      setIsInsertMode(true);
+      console.log('[ScoreCanvas] Entered insert mode for measure with existing chord');
+      // The next click will place a new chord
+    }
+  }
+
+  // Place a new chord at the ghost note position
+  async function placeNewChord(
+    event: MouseEvent,
+    section: WorksheetSection,
+    measure: { id: string },
+    ghost: { pitch: Pitch; measureIndex: number }
+  ) {
+    // Shift+click = quick placement with last-used settings, no popup
+    const isQuickPlace = event.shiftKey;
+    
     // Set guard flag
     setIsPlacingChord(true);
 
     console.log('[ScoreCanvas] === CHORD PLACEMENT ===');
     console.log('[ScoreCanvas] Measure index:', ghost.measureIndex, 'Pitch:', ghost.pitch.note + ghost.pitch.octave);
+    console.log('[ScoreCanvas] Quick place:', isQuickPlace);
 
-    const chordDef = {
+    const { quality: lastQuality, inversion: lastInversion } = editorStore.lastUsedSettings;
+    
+    // Map inversion from '1'/'2'/'3' to 'first'/'second'/'third'
+    const inversionMap: Record<string, 'root' | 'first' | 'second' | 'third'> = {
+      'root': 'root',
+      '1': 'first',
+      '2': 'second', 
+      '3': 'third',
+    };
+    
+    const chordDef: ChordDefinition = {
       root: ghost.pitch.note,
       rootAccidental: ghost.pitch.accidental,
-      quality: (activeTool() as { type: 'chord'; quality: string }).quality as any,
-      inversion: 'root' as const,
+      quality: lastQuality,
+      inversion: inversionMap[lastInversion] || 'root',
     };
 
     try {
+      // Get chord pitches from Rust backend FIRST (for popup positioning)
+      const { pitches } = await generateChordPitchesRust(
+        chordDef,
+        ghost.pitch.octave as 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+      );
+
       const elementId = await scoreStore.addChordToMeasure(
         section.id,
         measure.id,
@@ -137,8 +264,27 @@ export default function ScoreCanvas() {
         { value: 1, dots: 0 }
       );
       console.log('[ScoreCanvas] Chord added:', elementId);
+      
       // Directly trigger re-render after successful chord placement
       renderAllSections();
+      
+      // Exit insert mode after placing
+      setIsInsertMode(false);
+      
+      // If not quick place, select the new chord and open popup above top note
+      if (!isQuickPlace) {
+        // Calculate top note Y from the pitches we just got
+        const topNoteY = getTopNoteScreenY(pitches, section, ghost.measureIndex);
+        const anchorX = event.clientX;
+        const anchorY = topNoteY !== null ? topNoteY - 15 : event.clientY - 40;
+        
+        editorStore.selectChord(elementId, {
+          x: anchorX,
+          y: anchorY,
+          sectionId: section.id,
+          measureId: measure.id,
+        });
+      }
     } catch (error) {
       console.error('[ScoreCanvas] Failed to add chord:', error);
     } finally {
@@ -214,6 +360,11 @@ export default function ScoreCanvas() {
     const screenX = (snappedSvgX / scaleX) + svgOffsetX;
     const screenY = (snappedSvgY / scaleY) + svgOffsetY;
 
+    // Check if this measure already has a chord
+    const measure = section.staff.measures[measureIndex];
+    const measureHasChord = measure?.elements.some(el => el.type === 'chord') ?? false;
+    setHoverHasChord(measureHasChord);
+
     setGhostNote({
       x: screenX,
       y: screenY,
@@ -225,6 +376,8 @@ export default function ScoreCanvas() {
 
   function handleMouseLeave() {
     setGhostNote(null);
+    setHoverHasChord(false);
+    setIsInsertMode(false);
   }
 
   function formatPitch(pitch: Pitch): string {
@@ -235,7 +388,10 @@ export default function ScoreCanvas() {
   }
 
   return (
-    <div class="score-canvas paper-texture">
+    <div class="score-canvas">
+      {/* Chord Editor Popup - rendered at document level for proper positioning */}
+      <ChordEditorPopup />
+      
       <Show when={isLoading()}>
         <div class="loading-state">
           <div class="spinner spinner-lg"></div>
@@ -243,59 +399,56 @@ export default function ScoreCanvas() {
         </div>
       </Show>
       
-      <Show when={!isLoading() && sections().length === 0}>
-        <div class="empty-state">
-          <div class="empty-icon">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 18V5l12-2v13"/>
-              <circle cx="6" cy="18" r="3"/>
-              <circle cx="18" cy="16" r="3"/>
-            </svg>
+      <Show when={!isLoading()}>
+        {/* 8.5x11 Paper Worksheet */}
+        <div class="worksheet-paper">
+          <div class="worksheet-header">
+            <h1 class="worksheet-title">Name the Chords</h1>
+            <p class="worksheet-instructions">Write the chord symbol for each chord shown below.</p>
           </div>
-          <h2 class="empty-title">No worksheet sections yet</h2>
-          <p class="empty-description">Add a chord naming section from the sidebar to get started.</p>
-        </div>
-      </Show>
-      
-      <Show when={!isLoading() && sections().length > 0}>
-        <div class="sections">
-          <For each={sections()}>
-            {(section) => (
-              <div class="section">
-                <Show when={section.title}>
-                  <h3 class="section-title">{section.title}</h3>
-                </Show>
-                <Show when={section.instructions}>
-                  <p class="section-instructions">{section.instructions}</p>
-                </Show>
-
-                <div
-                  class={`staff-container ${activeTool().type === 'chord' ? 'chord-mode' : ''}`}
-                  role="application"
-                  tabIndex={0}
-                  aria-label="Music staff - click to place chords"
-                  onClick={(e) => handleStaffClick(e, section)}
-                  onMouseMove={(e) => handleMouseMove(e, section)}
-                  onMouseLeave={handleMouseLeave}
-                >
-                  <div 
-                    class="vexflow-container"
-                    data-section-id={section.id}
-                  ></div>
-                  
-                  <Show when={ghostNote() && ghostNote()!.sectionId === section.id && activeTool().type === 'chord'}>
-                    <div 
-                      class="ghost-note"
-                      style={`left: ${ghostNote()!.x}px; top: ${ghostNote()!.y}px;`}
-                    >
-                      <div class="ghost-note-head"></div>
-                      <span class="ghost-note-label">{formatPitch(ghostNote()!.pitch)}</span>
-                    </div>
-                  </Show>
-                </div>
+          
+          <div class="worksheet-content">
+            <Show when={sections().length === 0}>
+              <div class="empty-worksheet">
+                <p class="empty-worksheet-hint">Click "Add Staff Line" to begin adding chords to your worksheet.</p>
               </div>
-            )}
-          </For>
+            </Show>
+            
+            <div class="sections">
+              <For each={sections()}>
+                {(section) => (
+                  <div class="section">
+                    <div
+                      class={`staff-container ${activeTool().type === 'chord' ? 'chord-mode' : ''} ${hoverHasChord() && !isInsertMode() ? 'select-cursor' : 'insert-cursor'}`}
+                      role="application"
+                      tabIndex={0}
+                      aria-label="Music staff - click to place chords"
+                      onClick={(e) => handleStaffClick(e, section)}
+                      onDblClick={(e) => handleStaffDoubleClick(e, section)}
+                      onMouseMove={(e) => handleMouseMove(e, section)}
+                      onMouseLeave={handleMouseLeave}
+                    >
+                      <div 
+                        class="vexflow-container"
+                        data-section-id={section.id}
+                      ></div>
+                      
+                      {/* Ghost note only visible when: empty measure OR in insert mode (after double-click) */}
+                      <Show when={ghostNote() && ghostNote()!.sectionId === section.id && activeTool().type === 'chord' && (!hoverHasChord() || isInsertMode())}>
+                        <div 
+                          class="ghost-note"
+                          style={`left: ${ghostNote()!.x}px; top: ${ghostNote()!.y}px;`}
+                        >
+                          <div class="ghost-note-head"></div>
+                          <span class="ghost-note-label">{formatPitch(ghostNote()!.pitch)}</span>
+                        </div>
+                      </Show>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </div>
+          </div>
         </div>
       </Show>
     </div>
