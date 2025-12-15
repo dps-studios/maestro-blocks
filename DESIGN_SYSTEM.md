@@ -20,7 +20,8 @@ src/
 ├── lib/
 │   ├── styles/
 │   │   └── design-system.css    # All design tokens and utility classes
-│   └── theme.svelte.ts          # Dark/light mode state management
+│   └── hooks/
+│       └── useTheme.ts          # Dark/light mode state management
 └── app.css                       # Global styles importing design system
 ```
 
@@ -169,144 +170,20 @@ Base unit: **4px**
 
 ---
 
-## Border Radius
-
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--radius-sm` | 4px | Small buttons, tags |
-| `--radius-md` | 6px | Buttons, inputs |
-| `--radius-lg` | 8px | Cards, panels |
-| `--radius-xl` | 12px | Modal dialogs |
-| `--radius-full` | 9999px | Pills, circular elements |
-
----
-
-## Shadows
-
-| Token | Usage |
-|-------|-------|
-| `--shadow-sm` | Subtle elevation |
-| `--shadow-md` | Cards, dropdowns |
-| `--shadow-lg` | Modals, overlays |
-| `--shadow-card` | Standard card elevation |
-
----
-
-## Transitions
-
-| Token | Duration | Usage |
-|-------|----------|-------|
-| `--transition-fast` | 100ms | Hover states |
-| `--transition-base` | 150ms | Most interactions |
-| `--transition-slow` | 300ms | Page transitions |
-| `--transition-colors` | Combined | Color-only transitions |
-
-### Usage Pattern
-
-```css
-.button {
-  transition: var(--transition-colors), transform var(--transition-fast);
-}
-
-.button:hover {
-  transform: scale(1.01);
-}
-```
-
----
-
-## Component Patterns
-
-### Buttons
-
-Three button variants are available:
-
-```html
-<!-- Primary: Ink background, paper text -->
-<button class="btn btn-primary">Add Section</button>
-
-<!-- Secondary: Paper background, ink text, border -->
-<button class="btn btn-secondary">Cancel</button>
-
-<!-- Ghost: Transparent, no border -->
-<button class="btn btn-ghost">Settings</button>
-```
-
-### Cards
-
-```html
-<div class="card">
-  <h3 class="section-header">Card Title</h3>
-  <!-- Content -->
-</div>
-```
-
-### Section Headers
-
-```html
-<h3 class="section-header">WORKSHEET</h3>
-```
-
-Renders as: uppercase, small text, wide letter-spacing, muted color.
-
-### Paper Texture
-
-Add the `.paper-texture` class to apply a subtle grain overlay:
-
-```html
-<div class="main-content paper-texture">
-  <!-- Content with paper grain effect -->
-</div>
-```
-
----
-
-## Interactive States
-
-### Hover
-
-```css
-.interactive-element:hover {
-  transform: scale(1.01);
-  background-color: var(--color-hover-overlay);
-}
-```
-
-### Focus
-
-```css
-.interactive-element:focus-visible {
-  outline: 2px solid var(--color-accent-gold);
-  outline-offset: 2px;
-}
-```
-
-### Disabled
-
-```css
-.button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-```
-
----
-
 ## Dark Mode
 
 ### Theme Toggle
 
-Use the theme store for reactive dark/light mode:
+Use the theme hook for reactive dark/light mode:
 
 ```typescript
-import { theme } from '$lib/theme.svelte';
+import { theme, isDark } from './lib/hooks/useTheme';
 
 // Toggle theme
 theme.toggle();
 
-// Check current theme
-if (theme.isDark) {
+// Check current theme (reactive)
+if (isDark()) {
   // Dark mode active
 }
 
@@ -347,95 +224,41 @@ The `index.html` includes a blocking script that applies the theme before first 
 
 ---
 
-## Accessibility
+## Component Patterns
 
-### Touch Targets
+### Buttons
 
-Minimum touch target size: **32x32px** (`w-8 h-8`)
-
-```css
-.icon-button {
-  min-width: 32px;
-  min-height: 32px;
-}
-```
-
-### Focus Visibility
-
-Always use `focus-visible` for keyboard-only focus states:
-
-```css
-button:focus-visible {
-  outline: 2px solid var(--color-accent-gold);
-  outline-offset: 2px;
-}
-```
-
-### Reduced Motion
-
-Animations are disabled for users who prefer reduced motion:
-
-```css
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-```
-
----
-
-## Animations
-
-### Available Keyframes
-
-| Animation | Usage |
-|-----------|-------|
-| `spin` | Loading spinners |
-| `fadeIn` | Content appearing |
-| `scaleIn` | Modal dialogs |
-| `shimmer` | Active/playing states (light mode) |
-| `shimmerDark` | Active/playing states (dark mode) |
-| `pulse` | Loading indicators |
-
-### Spinner Component
+Three button variants are available:
 
 ```html
-<div class="spinner"></div>
-<div class="spinner spinner-sm"></div>
-<div class="spinner spinner-lg"></div>
+<!-- Primary: Ink background, paper text -->
+<button class="btn btn-primary">Add Section</button>
+
+<!-- Secondary: Paper background, ink text, border -->
+<button class="btn btn-secondary">Cancel</button>
+
+<!-- Ghost: Transparent, no border -->
+<button class="btn btn-ghost">Settings</button>
 ```
 
----
-
-## Icons
-
-All icons use inline SVG with consistent specifications:
+### Cards
 
 ```html
-<svg 
-  width="18" 
-  height="18" 
-  viewBox="0 0 24 24" 
-  fill="none" 
-  stroke="currentColor" 
-  stroke-width="2" 
-  stroke-linecap="round" 
-  stroke-linejoin="round"
->
-  <!-- paths -->
-</svg>
+<div class="card">
+  <h3 class="section-header">Card Title</h3>
+  <!-- Content -->
+</div>
 ```
 
-### Icon Sizes
+### Paper Texture
 
-| Context | Size |
-|---------|------|
-| Header controls | 18px |
-| Button icons | 16px |
-| Status bar | 12px |
-| Empty states | 48-64px |
+Add the `.paper-texture` class to apply a subtle grain overlay:
+
+```html
+<div class="main-content paper-texture">
+  <!-- Content with paper grain effect -->
+</div>
+```
 
 ---
 
@@ -456,67 +279,3 @@ All icons use inline SVG with consistent specifications:
 - Skip focus states on interactive elements
 - Forget to test responsive behavior
 - Use emojis (prefer SVG icons)
-
----
-
-## Quick Reference
-
-### Common Patterns
-
-```css
-/* Card with standard styling */
-.my-card {
-  background-color: var(--color-paper);
-  border: 1px solid var(--color-accent-line);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4);
-  box-shadow: var(--shadow-card);
-}
-
-/* Interactive element */
-.my-button {
-  padding: var(--space-2) var(--space-3);
-  background-color: var(--color-ink);
-  color: var(--color-paper);
-  border: none;
-  border-radius: var(--radius-md);
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  cursor: pointer;
-  transition: var(--transition-colors), transform var(--transition-fast);
-}
-
-.my-button:hover {
-  background-color: var(--color-ink-light);
-  transform: scale(1.01);
-}
-
-.my-button:focus-visible {
-  outline: 2px solid var(--color-accent-gold);
-  outline-offset: 2px;
-}
-
-/* Tier-colored element */
-.chord-badge.tier-safe {
-  color: var(--color-tier-safe);
-  background-color: var(--color-tier-safe-bg);
-  border: 1px solid var(--color-tier-safe-border);
-}
-```
-
-### File Imports
-
-```css
-/* In component styles */
-/* Tokens are globally available via app.css import */
-
-/* Use tokens directly */
-.component {
-  color: var(--color-ink);
-}
-```
-
-```typescript
-// In Svelte components
-import { theme } from '$lib/theme.svelte';
-```
