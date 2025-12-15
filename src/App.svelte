@@ -114,7 +114,7 @@
     </div>
     <div class="status-right">
       <span class="status-item muted">
-        Verovio rendering
+        VexFlow rendering
       </span>
     </div>
   </footer>

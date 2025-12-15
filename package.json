@@ -28,6 +28,6 @@
     "svelte": "^5.46.0",
     "svelte-konva": "^1.0.1",
     "uuid": "^13.0.0",
-    "verovio": "^5.7.0"
+    "vexflow": "^5.0.0"
   }
 }

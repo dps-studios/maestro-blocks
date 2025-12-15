@@ -24,7 +24,6 @@ import {
   createChordNamingSection,
   createEmptyMeasure,
 } from '../types/score';
-import { renderSection } from '../services/verovio';
 import { generateChordPitchesRust } from '../services/music';
 
 // ============================================================================
@@ -393,43 +392,6 @@ export const selectedElements = derived(
 );
 
 // ============================================================================
-// RENDER CACHE
+// NOTE: Rendering is now handled directly in ScoreCanvas using VexFlow
+// The old Verovio render cache has been removed
 // ============================================================================
-
-/** Cache for rendered SVGs */
-const renderCache = new Map<string, string>();
-
-/** Render a section and cache the result */
-export async function renderSectionCached(
-  section: WorksheetSection,
-  keyFifths: number = 0,
-  showAnswers: boolean = false
-): Promise<string> {
-  // Create a cache key from section content (includes showAnswers)
-  const cacheKey = JSON.stringify({
-    id: section.id,
-    measures: section.staff.measures,
-    clef: section.staff.clef,
-    keyFifths,
-    showAnswers,
-  });
-
-  const cached = renderCache.get(cacheKey);
-  if (cached) return cached;
-
-  const svg = await renderSection(section, keyFifths, showAnswers);
-  renderCache.set(cacheKey, svg);
-
-  // Limit cache size
-  if (renderCache.size > 50) {
-    const firstKey = renderCache.keys().next().value;
-    if (firstKey) renderCache.delete(firstKey);
-  }
-
-  return svg;
-}
-
-/** Clear render cache */
-export function clearRenderCache() {
-  renderCache.clear();
-}

@@ -1,150 +1,112 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { scoreStore, editorStore, renderSectionCached } from '../stores/score';
-  import { initVerovio, pitchFromStaffPosition } from '../services/verovio';
-  import type { WorksheetSection, Pitch, NoteName, ClefType } from '../types/score';
+  import { scoreStore, editorStore } from '../stores/score';
+  import { 
+    renderSection, 
+    yPositionToPitch,
+    pitchToYPosition,
+    xPositionToMeasure,
+    type StaffCoordinates,
+  } from '../services/vexflow';
+  import type { WorksheetSection, Pitch } from '../types/score';
 
   // Reactive state
-  let isVerovioReady = $state(false);
   let isLoading = $state(true);
-  let loadError = $state<string | null>(null);
-  let renderedSvgs = $state<Record<string, string>>({});
-  let isRendering = $state(false);
+  let staffCoordinates = $state<Map<string, StaffCoordinates>>(new Map());
   
-  // Ghost note state - now uses percentage-based positioning
+  // Ghost note state - pixel-perfect positioning
   let ghostNote = $state<{ 
-    xPercent: number;  // 0-100% across the container
-    yPercent: number;  // 0-100% down the container
+    x: number;           // Pixel X position (centered in measure)
+    y: number;           // Pixel Y position (snapped to staff line/space)
     pitch: Pitch;
     measureIndex: number;
     sectionId: string;
   } | null>(null);
 
-  // Initialize Verovio on mount
+  // Initialize on mount
   onMount(() => {
-    initializeVerovio();
+    isLoading = false;
+    console.log('[ScoreCanvas] VexFlow renderer ready');
   });
 
-  async function initializeVerovio() {
-    try {
-      console.log('[ScoreCanvas] Initializing Verovio...');
-      await initVerovio();
-      console.log('[ScoreCanvas] Verovio ready');
-      isVerovioReady = true;
-      isLoading = false;
-    } catch (error) {
-      console.error('[ScoreCanvas] Failed to initialize Verovio:', error);
-      loadError = error instanceof Error ? error.message : 'Unknown error';
-      isLoading = false;
-    }
-  }
-
-  // Render sections when score changes
+  // Reactive store subscriptions
   let sections = $derived($scoreStore.sections);
   let keyFifths = $derived($scoreStore.keySignature.fifths);
+  let timeSignature = $derived($scoreStore.timeSignature);
   let showAnswers = $derived($scoreStore.showAnswers);
+  let activeTool = $derived($editorStore.activeTool);
 
+  // Re-render when score changes
   $effect(() => {
-    const currentSections = sections;
-    const currentKeyFifths = keyFifths;
-    const currentShowAnswers = showAnswers;
-    
-    if (isVerovioReady && currentSections.length > 0) {
-      setTimeout(() => {
-        renderAllSections(currentSections, currentKeyFifths, currentShowAnswers);
-      }, 0);
+    if (!isLoading && sections.length > 0) {
+      // Delay to ensure DOM is ready
+      setTimeout(() => renderAllSections(), 0);
     }
   });
 
-  async function renderAllSections(
-    sectionsToRender: WorksheetSection[], 
-    keyFifthsValue: number,
-    showAnswersValue: boolean
-  ) {
-    if (isRendering) return;
+  function renderAllSections() {
+    console.log('[ScoreCanvas] Rendering', sections.length, 'sections');
     
-    isRendering = true;
-
-    try {
-      const newSvgs: Record<string, string> = {};
-      
-      for (const section of sectionsToRender) {
-        try {
-          const svg = await renderSectionCached(section, keyFifthsValue, showAnswersValue);
-          newSvgs[section.id] = svg;
-        } catch (error) {
-          console.error('[ScoreCanvas] Error rendering section:', section.id, error);
-          newSvgs[section.id] = `<svg><text x="10" y="30" fill="red">Render error</text></svg>`;
-        }
+    const containers = getStaffContainers();
+    
+    for (const section of sections) {
+      const container = containers.get(section.id);
+      if (!container) {
+        console.warn('[ScoreCanvas] No container for section:', section.id);
+        continue;
       }
       
-      renderedSvgs = newSvgs;
-    } catch (error) {
-      console.error('[ScoreCanvas] Render error:', error);
-    } finally {
-      isRendering = false;
+      // Clear previous content
+      container.innerHTML = '';
+      
+      try {
+        const result = renderSection(section, showAnswers, timeSignature, keyFifths);
+        container.appendChild(result.svg);
+        staffCoordinates.set(section.id, result.coordinates);
+        
+        console.log('[ScoreCanvas] Rendered section', section.id, 'coords:', result.coordinates);
+      } catch (error) {
+        console.error('[ScoreCanvas] Error rendering section:', section.id, error);
+      }
     }
   }
 
-  let activeTool = $derived($editorStore.activeTool);
-
-  // Layout constants for Verovio output at scale 100
-  // These are approximate ratios based on typical Verovio rendering
-  const STAFF_START_X_PERCENT = 8;   // Staff starts ~8% from left (after clef + time sig)
-  const STAFF_TOP_Y_PERCENT = 30;    // Staff top line at ~30% from top (shifted up)
-  const STAFF_BOTTOM_Y_PERCENT = 50; // Staff bottom line at ~50% from top
-  const STAFF_HEIGHT_PERCENT = STAFF_BOTTOM_Y_PERCENT - STAFF_TOP_Y_PERCENT;
-
-  // Calculate Y percentage for a pitch
-  function calculateNoteYPercent(pitch: Pitch, clef: ClefType): number {
-    const noteOrder: NoteName[] = ['c', 'd', 'e', 'f', 'g', 'a', 'b'];
-    
-    // Reference: top line of staff for each clef
-    const clefTopLine: Record<ClefType, { note: NoteName; octave: number }> = {
-      treble: { note: 'f', octave: 5 },
-      bass: { note: 'a', octave: 3 },
-      alto: { note: 'g', octave: 4 },
-      tenor: { note: 'a', octave: 4 },
-    };
-    
-    const ref = clefTopLine[clef];
-    const refIndex = noteOrder.indexOf(ref.note) + ref.octave * 7;
-    const pitchIndex = noteOrder.indexOf(pitch.note) + pitch.octave * 7;
-    
-    // Steps from top line (positive = below, negative = above)
-    const stepsFromTop = refIndex - pitchIndex;
-    
-    // Staff has 4 spaces (8 half-steps visible), each step is 1/8 of staff height
-    const stepPercent = STAFF_HEIGHT_PERCENT / 8;
-    
-    return STAFF_TOP_Y_PERCENT + (stepsFromTop * stepPercent);
+  function getStaffContainers() {
+    // Query all VexFlow containers by data attribute
+    const containers = document.querySelectorAll<HTMLDivElement>('.vexflow-container[data-section-id]');
+    const map = new Map<string, HTMLDivElement>();
+    containers.forEach(el => {
+      const id = el.getAttribute('data-section-id');
+      if (id) map.set(id, el);
+    });
+    return map;
   }
 
-  async function handleStaffClick(_event: MouseEvent, section: WorksheetSection) {
+  // Handle staff click - place chord at ghost note position
+  async function handleStaffClick(event: MouseEvent, section: WorksheetSection) {
     if (activeTool.type !== 'chord') return;
     if (!ghostNote || ghostNote.sectionId !== section.id) return;
 
     const measure = section.staff.measures[ghostNote.measureIndex];
-    if (measure && activeTool.type === 'chord') {
-      // Log the click details
-      console.log('[ScoreCanvas] Click detected:', {
-        measureIndex: ghostNote.measureIndex,
-        measureId: measure.id,
-        pitch: ghostNote.pitch,
-        quality: activeTool.quality,
-      });
+    if (!measure) return;
 
-      const chordDef = {
-        root: ghostNote.pitch.note,
-        rootAccidental: ghostNote.pitch.accidental,
-        quality: activeTool.quality,
-        inversion: 'root' as const,
-      };
+    console.log('[ScoreCanvas] === CHORD PLACEMENT ===');
+    console.log('[ScoreCanvas] Click position:', { x: event.offsetX, y: event.offsetY });
+    console.log('[ScoreCanvas] Ghost note:', ghostNote);
+    console.log('[ScoreCanvas] Measure index:', ghostNote.measureIndex);
+    console.log('[ScoreCanvas] Pitch:', ghostNote.pitch);
+    console.log('[ScoreCanvas] Quality:', activeTool.quality);
 
-      console.log('[ScoreCanvas] Creating chord with definition:', chordDef);
-      console.log('[ScoreCanvas] Root octave:', ghostNote.pitch.octave);
+    const chordDef = {
+      root: ghostNote.pitch.note,
+      rootAccidental: ghostNote.pitch.accidental,
+      quality: activeTool.quality,
+      inversion: 'root' as const,
+    };
 
-      // Use the octave from the ghost note position (root = bottom note of chord)
+    console.log('[ScoreCanvas] Chord definition:', chordDef);
+
+    try {
       const elementId = await scoreStore.addChordToMeasure(
         section.id,
         measure.id,
@@ -152,52 +114,95 @@
         ghostNote.pitch.octave,
         { value: 1, dots: 0 }
       );
-
-      console.log('[ScoreCanvas] Chord added with element ID:', elementId);
+      console.log('[ScoreCanvas] Chord added successfully, element ID:', elementId);
+    } catch (error) {
+      console.error('[ScoreCanvas] Failed to add chord:', error);
     }
   }
 
+  // Handle mouse move - update ghost note position with pixel-perfect accuracy
   function handleMouseMove(event: MouseEvent, section: WorksheetSection) {
     if (activeTool.type !== 'chord') {
       ghostNote = null;
       return;
     }
 
-    const target = event.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
-    const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
+    const coords = staffCoordinates.get(section.id);
+    if (!coords || coords.measureBounds.length === 0) return;
 
-    // Calculate pitch from Y position
-    const staffTop = rect.height * (STAFF_TOP_Y_PERCENT / 100);
-    const staffHeight = rect.height * (STAFF_HEIGHT_PERCENT / 100);
-    const yInContainer = event.clientY - rect.top;
-    const pitch = pitchFromStaffPosition(yInContainer, staffTop, staffHeight, section.staff.clef);
+    // Get the staff-container (event target) and the SVG element
+    const staffContainer = event.currentTarget as HTMLElement;
+    const svg = staffContainer.querySelector('svg');
+    if (!svg) return;
 
-    // Calculate measure index from X position
-    // Only trigger if we're in the staff area (past the clef/time signature)
-    const measureAreaStart = STAFF_START_X_PERCENT;
-    const measureAreaEnd = 98; // Right margin
-    const measureAreaWidth = measureAreaEnd - measureAreaStart;
-    const measureWidth = measureAreaWidth / section.staff.measures.length;
+    // Get bounding rects for coordinate transformation
+    const staffContainerRect = staffContainer.getBoundingClientRect();
+    const svgRect = svg.getBoundingClientRect();
     
-    // Determine which measure the mouse is over
-    let measureIndex: number;
-    if (xPercent < measureAreaStart) {
-      measureIndex = 0; // Snap to first measure if before staff
-    } else if (xPercent > measureAreaEnd) {
-      measureIndex = section.staff.measures.length - 1; // Snap to last if past end
-    } else {
-      measureIndex = Math.floor((xPercent - measureAreaStart) / measureWidth);
-      measureIndex = Math.max(0, Math.min(measureIndex, section.staff.measures.length - 1));
+    // Calculate scale factors (SVG internal coords vs rendered size)
+    const scaleX = coords.totalWidth / svgRect.width;
+    const scaleY = coords.totalHeight / svgRect.height;
+
+    // Convert mouse position to SVG coordinate space
+    const mouseXInSvg = event.clientX - svgRect.left;
+    const mouseYInSvg = event.clientY - svgRect.top;
+    const svgX = mouseXInSvg * scaleX;
+    const svgY = mouseYInSvg * scaleY;
+
+    // Determine which system (staff line) the mouse is on based on Y position
+    // Find the system whose vertical center is closest to the mouse Y
+    let targetSystemIndex = 0;
+    if (coords.numSystems > 1) {
+      const systemTotalHeight = coords.systemHeight + coords.systemSpacing;
+      // Calculate which system based on Y, snapping at halfway point between systems
+      targetSystemIndex = Math.floor((svgY + coords.systemSpacing / 2) / systemTotalHeight);
+      targetSystemIndex = Math.max(0, Math.min(targetSystemIndex, coords.numSystems - 1));
     }
 
-    // Calculate ghost note position - ALWAYS centered in the hovered measure
-    const noteXPercent = measureAreaStart + (measureIndex + 0.5) * measureWidth;
-    const noteYPercent = calculateNoteYPercent(pitch, section.staff.clef);
+    // Find measures that belong to this system
+    const systemMeasures = coords.measureBounds
+      .map((bound, index) => ({ bound, index }))
+      .filter(({ bound }) => bound.systemIndex === targetSystemIndex);
+    
+    if (systemMeasures.length === 0) return;
+
+    // Find which measure within this system based on X position
+    let measureIndex = systemMeasures[0].index;
+    for (const { bound, index } of systemMeasures) {
+      if (svgX >= bound.startX && svgX < bound.endX) {
+        measureIndex = index;
+        break;
+      }
+      // Default to last measure if past the end
+      if (svgX >= bound.endX) {
+        measureIndex = index;
+      }
+    }
+
+    const measureBound = coords.measureBounds[measureIndex];
+    
+    // Get pitch from Y position using this system's staff coordinates
+    const systemCoords = {
+      ...coords,
+      staffTopY: measureBound.staffTopY,
+      staffBottomY: measureBound.staffBottomY,
+    };
+    const pitch = yPositionToPitch(svgY, systemCoords, section.staff.clef);
+    
+    // Calculate snapped Y position on this system's staff
+    const snappedSvgX = measureBound.startX + 20;
+    const snappedSvgY = pitchToYPosition(pitch, systemCoords, section.staff.clef);
+    
+    // Convert SVG coords back to screen coords relative to staff-container
+    const svgOffsetX = svgRect.left - staffContainerRect.left;
+    const svgOffsetY = svgRect.top - staffContainerRect.top;
+    
+    const screenX = (snappedSvgX / scaleX) + svgOffsetX;
+    const screenY = (snappedSvgY / scaleY) + svgOffsetY;
 
     ghostNote = {
-      xPercent: noteXPercent,
-      yPercent: noteYPercent,
+      x: screenX,
+      y: screenY,
       pitch,
       measureIndex,
       sectionId: section.id,
@@ -208,33 +213,12 @@
     ghostNote = null;
   }
 
-  // Get measures that have chords (for underline rendering)
-  function getMeasuresWithChords(section: WorksheetSection): number[] {
-    return section.staff.measures
-      .map((m, i) => ({ index: i, hasChord: m.elements.some(e => e.type === 'chord') }))
-      .filter(m => m.hasChord)
-      .map(m => m.index);
-  }
-
-  // Calculate underline positions (percentage-based)
-  function getUnderlinePositions(section: WorksheetSection) {
-    const measuresWithChords = getMeasuresWithChords(section);
-    
-    const measureAreaStart = STAFF_START_X_PERCENT;
-    const measureAreaWidth = 100 - measureAreaStart - 2;
-    const measureWidth = measureAreaWidth / section.staff.measures.length;
-    
-    const underlineYPercent = STAFF_BOTTOM_Y_PERCENT + 12; // Below staff
-    const underlineWidthPercent = measureWidth * 0.4;
-    
-    return measuresWithChords.map(measureIndex => {
-      const centerX = measureAreaStart + (measureIndex + 0.5) * measureWidth;
-      return {
-        leftPercent: centerX - underlineWidthPercent / 2,
-        widthPercent: underlineWidthPercent,
-        topPercent: underlineYPercent,
-      };
-    });
+  // Format pitch for display
+  function formatPitch(pitch: Pitch): string {
+    let str = pitch.note.toUpperCase();
+    if (pitch.accidental === 'sharp') str += '#';
+    else if (pitch.accidental === 'flat') str += 'b';
+    return `${str}${pitch.octave}`;
   }
 </script>
 
@@ -243,16 +227,6 @@
     <div class="loading-state">
       <div class="spinner spinner-lg"></div>
       <p class="loading-text">Loading notation engine...</p>
-    </div>
-  {:else if loadError}
-    <div class="error-state">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/>
-        <line x1="12" y1="8" x2="12" y2="12"/>
-        <line x1="12" y1="16" x2="12.01" y2="16"/>
-      </svg>
-      <p class="error-title">Failed to load notation engine</p>
-      <code class="error-code">{loadError}</code>
     </div>
   {:else if sections.length === 0}
     <div class="empty-state">
@@ -277,57 +251,35 @@
             <p class="section-instructions">{section.instructions}</p>
           {/if}
 
-          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
           <div
             class="staff-container"
             class:chord-mode={activeTool.type === 'chord'}
-            onclick={(e) => handleStaffClick(e, section)}
-            onkeydown={(e) => e.key === 'Enter' && handleStaffClick(e as unknown as MouseEvent, section)}
-            onmousemove={(e) => handleMouseMove(e, section)}
-            onmouseleave={handleMouseLeave}
             role="application"
             tabindex="0"
             aria-label="Music staff - click to place chords"
+            onclick={(e) => handleStaffClick(e, section)}
+            onmousemove={(e) => handleMouseMove(e, section)}
+            onmouseleave={handleMouseLeave}
           >
-            {#if renderedSvgs[section.id]}
-              <div class="svg-wrapper">
-                {@html renderedSvgs[section.id]}
-              </div>
-              
-              <!-- Ghost note overlay (CSS positioned) -->
-              {#if ghostNote && ghostNote.sectionId === section.id && activeTool.type === 'chord'}
-                <div 
-                  class="ghost-note"
-                  style="left: {ghostNote.xPercent}%; top: {ghostNote.yPercent}%;"
-                ></div>
-              {/if}
-              
-              <!-- Underlines for answer blanks -->
-              {#if !showAnswers}
-                {#each getUnderlinePositions(section) as pos}
-                  <div 
-                    class="answer-underline"
-                    style="left: {pos.leftPercent}%; top: {pos.topPercent}%; width: {pos.widthPercent}%;"
-                  ></div>
-                {/each}
-              {/if}
-            {:else}
-              <div class="rendering-state">
-                <div class="spinner spinner-sm"></div>
-                <span>Rendering...</span>
+            <!-- VexFlow SVG renders here -->
+            <div 
+              class="vexflow-container"
+              data-section-id={section.id}
+            ></div>
+            
+            <!-- Ghost note overlay (pixel-perfect positioned) -->
+            {#if ghostNote && ghostNote.sectionId === section.id && activeTool.type === 'chord'}
+              <div 
+                class="ghost-note"
+                style="left: {ghostNote.x}px; top: {ghostNote.y}px;"
+              >
+                <div class="ghost-note-head"></div>
+                <span class="ghost-note-label">{formatPitch(ghostNote.pitch)}</span>
               </div>
             {/if}
           </div>
         </div>
       {/each}
-    </div>
-  {/if}
-
-  {#if isRendering}
-    <div class="render-indicator">
-      <div class="spinner spinner-sm"></div>
-      <span>Updating...</span>
     </div>
   {/if}
 </div>
@@ -359,33 +311,6 @@
     font-family: var(--font-sans);
     font-size: var(--text-sm);
     color: var(--color-ink-muted);
-  }
-
-  /* Error State */
-  .error-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    min-height: 400px;
-    gap: var(--space-3);
-    color: var(--color-error);
-  }
-
-  .error-title {
-    margin: 0;
-    font-family: var(--font-sans);
-    font-size: var(--text-base);
-    font-weight: var(--font-medium);
-  }
-
-  .error-code {
-    padding: var(--space-2) var(--space-4);
-    background-color: var(--color-error-bg);
-    border-radius: var(--radius-md);
-    font-family: monospace;
-    font-size: var(--text-sm);
   }
 
   /* Empty State */
@@ -420,52 +345,53 @@
     max-width: 300px;
   }
 
-  /* Sections */
+  /* Sections - Paper-like worksheet layout */
   .sections {
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: var(--space-6);
   }
 
+  /* Section styled as US Letter paper (8.5:11 aspect ratio) */
   .section {
-    border: 1px solid var(--color-accent-line);
-    border-radius: var(--radius-lg);
-    padding: var(--space-4);
-    background-color: var(--color-paper);
-    box-shadow: var(--shadow-card);
+    background-color: #FFFFFF;
+    box-shadow: 
+      0 1px 3px rgba(0, 0, 0, 0.12),
+      0 4px 12px rgba(0, 0, 0, 0.08);
+    width: 100%;
+    max-width: 816px;  /* US Letter width at 96 DPI */
+    min-height: 400px;
+    padding: 48px 56px; /* ~0.5" margins scaled */
   }
 
   .section-title {
-    margin: 0 0 var(--space-1);
+    margin: 0 0 4px;
     font-family: var(--font-serif);
-    font-size: var(--text-lg);
-    font-weight: var(--font-normal);
-    color: var(--color-ink);
+    font-size: 24px;
+    font-weight: 600;
+    color: #1a1a1a;
+    text-align: center;
   }
 
   .section-instructions {
-    margin: 0 0 var(--space-3);
+    margin: 0 0 32px;
     font-family: var(--font-sans);
-    font-size: var(--text-sm);
-    font-style: italic;
-    color: var(--color-ink-light);
+    font-size: 14px;
+    color: #666666;
+    text-align: center;
   }
 
-  /* Staff Container */
+  /* Staff Container - Clean notation area */
   .staff-container {
     position: relative;
-    background-color: var(--color-paper);
-    border-radius: var(--radius-md);
-    min-height: 120px;
-    transition: background-color var(--transition-base);
+    background-color: #FFFFFF;
+    min-height: 140px;
+    overflow: hidden; /* Prevent any staff line bleeding */
   }
 
   .staff-container.chord-mode {
     cursor: crosshair;
-  }
-
-  .staff-container.chord-mode:hover {
-    background-color: var(--color-tier-colorful-bg);
   }
 
   .staff-container:focus-visible {
@@ -473,92 +399,71 @@
     outline-offset: 2px;
   }
 
-  .svg-wrapper {
-    position: relative;
+  .vexflow-container {
     width: 100%;
+    display: flex;
+    justify-content: center;
   }
 
-  .svg-wrapper :global(svg) {
-    width: 100%;
-    height: auto;
+  .vexflow-container :global(svg) {
     display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
   }
 
-  /* Ghost Note */
+  /* Ghost Note - Pixel Perfect
+   * The note head is positioned exactly at the target coordinates.
+   * The container uses translate(-50%, 0) to center horizontally only.
+   * The note head is vertically centered on the target Y via negative margin.
+   */
   .ghost-note {
     position: absolute;
+    pointer-events: none;
+    transform: translateX(-50%); /* Center horizontally only */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .ghost-note-head {
     width: 14px;
     height: 10px;
     background-color: var(--color-accent-gold);
     border-radius: 50%;
-    transform: translate(-50%, -50%) rotate(-20deg);
-    pointer-events: none;
-    transition: left 0.05s ease, top 0.05s ease;
+    transform: rotate(-20deg);
     box-shadow: 
-      0 0 0 2px rgba(184, 149, 108, 0.3),
-      0 0 12px 2px rgba(184, 149, 108, 0.25);
-    opacity: 0.85;
+      0 0 0 2px rgba(184, 149, 108, 0.4),
+      0 0 12px 2px rgba(184, 149, 108, 0.3);
+    opacity: 0.9;
+    /* Offset upward by half the note head height to center on staff line */
+    margin-top: -5px;
   }
 
-  :root.dark .ghost-note {
+  .ghost-note-label {
+    font-family: var(--font-sans);
+    font-size: 10px;
+    font-weight: var(--font-semibold);
+    color: var(--color-accent-gold);
+    background-color: rgba(255, 255, 255, 0.95);
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+    margin-top: 2px;
+  }
+
+  :root.dark .ghost-note-head {
     box-shadow: 
-      0 0 0 2px rgba(201, 168, 108, 0.4),
-      0 0 12px 2px rgba(201, 168, 108, 0.3);
+      0 0 0 2px rgba(201, 168, 108, 0.5),
+      0 0 12px 2px rgba(201, 168, 108, 0.4);
   }
 
-  /* Answer Underline */
-  .answer-underline {
-    position: absolute;
-    height: 2px;
-    background-color: var(--color-ink);
-    pointer-events: none;
-    border-radius: 1px;
-  }
-
-  /* Rendering State */
-  .rendering-state {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    height: 150px;
-    color: var(--color-ink-muted);
-    font-size: var(--text-sm);
-  }
-
-  /* Render Indicator */
-  .render-indicator {
-    position: absolute;
-    bottom: var(--space-4);
-    right: var(--space-4);
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    background-color: var(--color-ink);
-    color: var(--color-paper);
-    padding: var(--space-1-5) var(--space-3);
-    border-radius: var(--radius-full);
-    font-size: var(--text-xs);
-    box-shadow: var(--shadow-md);
-    animation: fadeIn 0.2s ease-out;
-  }
-
-  .render-indicator .spinner {
-    border-color: var(--color-paper);
-    border-top-color: transparent;
-  }
-
-  /* Spinner sizes */
+  /* Spinner */
   .spinner {
     border: 2px solid var(--color-accent-line);
     border-top-color: var(--color-ink);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
-  }
-
-  .spinner-sm {
-    width: 14px;
-    height: 14px;
   }
 
   .spinner-lg {
@@ -570,17 +475,6 @@
   @keyframes spin {
     to {
       transform: rotate(360deg);
-    }
-  }
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
     }
   }
 </style>

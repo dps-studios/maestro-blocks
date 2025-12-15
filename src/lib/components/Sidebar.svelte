@@ -35,10 +35,18 @@
     editorStore.setChordQuality(quality);
   }
 
-  function addSection() {
-    console.log('[Sidebar] Adding section...');
-    scoreStore.addSection('chord-naming', 4);
-    console.log('[Sidebar] Section added');
+  function addStaffLine() {
+    // If no section exists, create one with 4 measures
+    // If a section exists, add 4 more measures to it (like adding a new staff line)
+    if (sections.length === 0) {
+      console.log('[Sidebar] Creating first section...');
+      scoreStore.addSection('chord-naming', 4);
+    } else {
+      // Add measures to the first (and typically only) section
+      const sectionId = sections[0].id;
+      console.log('[Sidebar] Adding 4 measures to existing section...');
+      scoreStore.addMeasures(sectionId, 4);
+    }
   }
 
   function toggleAnswers() {
@@ -81,12 +89,12 @@
   <section class="sidebar-section">
     <h3 class="section-header">Worksheet</h3>
     <div class="action-buttons">
-      <button class="action-btn primary" onclick={addSection}>
+      <button class="action-btn primary" onclick={addStaffLine}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="5" x2="12" y2="19"/>
           <line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
-        Add Chord Section
+        Add Staff Line
       </button>
       <button class="action-btn" onclick={toggleAnswers}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
