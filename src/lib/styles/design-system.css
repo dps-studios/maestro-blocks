@@ -558,6 +558,32 @@ html[data-platform="macos"] body {
   min-width: 70px;
 }
 
+.chord-editor-popup__reroll {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin-left: var(--space-1);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-accent-gold);
+  cursor: pointer;
+  transition: var(--transition-colors);
+}
+
+.chord-editor-popup__reroll:hover {
+  background-color: var(--color-accent-gold-light);
+  border-color: var(--color-accent-gold);
+}
+
+.chord-editor-popup__reroll:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(181, 148, 93, 0.3);
+}
+
 .chord-editor-popup__delete {
   display: flex;
   align-items: center;

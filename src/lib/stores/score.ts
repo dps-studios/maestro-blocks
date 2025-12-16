@@ -28,6 +28,7 @@ import {
   createEmptyMeasure,
 } from '../types/score';
 import { generateChordPitchesRust } from '../services/music';
+import { worksheetSettingsStore } from './worksheetSettings';
 
 // ============================================================================
 // SCORE STORE
@@ -204,6 +205,8 @@ export const scoreStore = {
         }
       })
     );
+    // Increment render version to trigger re-render
+    setRenderVersion((v) => v + 1);
   },
 
   /** Set staff clef for a section */
@@ -216,6 +219,8 @@ export const scoreStore = {
         }
       })
     );
+    // Increment render version to trigger re-render
+    setRenderVersion((v) => v + 1);
   },
 
   /** Add measures to a section */
@@ -253,7 +258,8 @@ export const scoreStore = {
     sectionId: string,
     elementId: string,
     chordDef: ChordDefinition,
-    rootOctave: number = 4
+    rootOctave: number = 4,
+    clefOverride?: 'treble' | 'bass'
   ): Promise<void> {
     // Generate new pitches from Rust backend
     const { pitches, displayName } = await generateChordPitchesRust(
@@ -273,6 +279,10 @@ export const scoreStore = {
             element.pitches = pitches;
             element.chordDef = chordDef;
             element.displayName = displayName;
+            // Update clefOverride if provided (for "both" mode)
+            if (clefOverride !== undefined) {
+              element.clefOverride = clefOverride;
+            }
 
             // Update the associated answer box
             const answerBox = section.answerBoxes.find(
@@ -314,6 +324,97 @@ export const scoreStore = {
       }
     }
     return null;
+  },
+
+  /** Generate a random worksheet based on current settings */
+  async generateRandomWorksheet(): Promise<void> {
+    const settings = worksheetSettingsStore.state;
+    const densityConfig = worksheetSettingsStore.getDensityConfig();
+    const isBothMode = settings.clef === 'both';
+    
+    // Calculate layout from fixed density config
+    const problemCount = settings.problemCount;
+    const chordsPerMeasure = densityConfig.chordsPerMeasure;
+    const measuresNeeded = densityConfig.measures;
+    
+    // Create a fresh section with the right number of measures
+    const section = createChordNamingSection(measuresNeeded);
+    // For 'both' mode, we'll set clef per-system during rendering based on first chord
+    section.staff.clef = isBothMode ? 'treble' : settings.clef;
+    
+    // Generate random chords and place them
+    const chordDefs: ChordDefinition[] = [];
+    for (let i = 0; i < problemCount; i++) {
+      chordDefs.push(worksheetSettingsStore.generateRandomChord());
+    }
+    
+    // Build chord elements for each measure
+    let chordIndex = 0;
+    for (let measureIdx = 0; measureIdx < measuresNeeded && chordIndex < problemCount; measureIdx++) {
+      const measure = section.staff.measures[measureIdx];
+      
+      for (let slot = 0; slot < chordsPerMeasure && chordIndex < problemCount; slot++) {
+        const chordDef = chordDefs[chordIndex];
+        
+        // For "both" mode, randomly assign clef (50/50) and use appropriate octave
+        const chordClef: 'treble' | 'bass' = isBothMode 
+          ? (Math.random() < 0.5 ? 'treble' : 'bass')
+          : (settings.clef === 'bass' ? 'bass' : 'treble');
+        const octave = chordClef === 'bass' ? 3 : 4;
+        
+        // Generate pitches from Rust backend
+        const { pitches, displayName } = await generateChordPitchesRust(
+          chordDef,
+          octave as 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+        );
+        
+        const elementId = crypto.randomUUID();
+        const chordElement: ChordElement = {
+          id: elementId,
+          type: 'chord',
+          pitches,
+          duration: { value: densityConfig.duration, dots: 0 },
+          chordDef,
+          displayName,
+          // Store clef override for "both" mode rendering
+          clefOverride: isBothMode ? chordClef : undefined,
+        };
+        
+        measure.elements.push(chordElement);
+        
+        // Create answer box
+        const answerBox: ChordNameBox = {
+          id: crypto.randomUUID(),
+          measureId: measure.id,
+          chordElementId: elementId,
+          answer: '',
+          correctAnswer: displayName,
+          showAnswer: score.showAnswers,
+        };
+        section.answerBoxes.push(answerBox);
+        
+        chordIndex++;
+      }
+    }
+    
+    // Replace all sections with the new one
+    setScore('sections', [section]);
+    setRenderVersion((v) => v + 1);
+  },
+
+  /** Clear all chords from the worksheet */
+  clearAllChords() {
+    setScore(
+      produce((s) => {
+        for (const section of s.sections) {
+          for (const measure of section.staff.measures) {
+            measure.elements = [];
+          }
+          section.answerBoxes = [];
+        }
+      })
+    );
+    setRenderVersion((v) => v + 1);
   },
 };
 

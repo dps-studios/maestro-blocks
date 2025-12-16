@@ -1,5 +1,6 @@
 import { Component, Show, createEffect, createSignal, onCleanup } from 'solid-js';
 import { editorStore, scoreStore } from '../stores/score';
+import { worksheetSettingsStore } from '../stores/worksheetSettings';
 import type {
   NoteName,
   Accidental,
@@ -45,15 +46,15 @@ interface QualityOption {
 }
 
 const QUALITY_OPTIONS: QualityOption[] = [
-  { label: 'Maj', value: 'major', isSeventh: false },
-  { label: 'min', value: 'minor', isSeventh: false },
-  { label: 'dim', value: 'diminished', isSeventh: false },
+  { label: 'Major', value: 'major', isSeventh: false },
+  { label: 'Minor', value: 'minor', isSeventh: false },
+  { label: '°', value: 'diminished', isSeventh: false },
   { label: 'aug', value: 'augmented', isSeventh: false },
-  { label: 'Maj7', value: 'major7', isSeventh: true },
-  { label: 'min7', value: 'minor7', isSeventh: true },
-  { label: 'dom7', value: 'dominant7', isSeventh: true },
-  { label: 'dim7', value: 'diminished7', isSeventh: true },
-  { label: 'ø7', value: 'half-diminished7', isSeventh: true },
+  { label: 'Major 7', value: 'major7', isSeventh: true },
+  { label: 'Minor 7', value: 'minor7', isSeventh: true },
+  { label: 'Dominant 7', value: 'dominant7', isSeventh: true },
+  { label: '°7', value: 'diminished7', isSeventh: true },
+  { label: 'Half Diminished', value: 'half-diminished7', isSeventh: true },
   { label: 'sus2', value: 'sus2', isSeventh: false },
   { label: 'sus4', value: 'sus4', isSeventh: false },
 ];
@@ -118,6 +119,26 @@ const TrashIcon: Component = () => (
     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     <line x1="10" y1="11" x2="10" y2="17" />
     <line x1="14" y1="11" x2="14" y2="17" />
+  </svg>
+);
+
+const DiceIcon: Component = () => (
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+    <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
+    <circle cx="15.5" cy="8.5" r="1.5" fill="currentColor" />
+    <circle cx="8.5" cy="15.5" r="1.5" fill="currentColor" />
+    <circle cx="15.5" cy="15.5" r="1.5" fill="currentColor" />
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" />
   </svg>
 );
 
@@ -215,6 +236,45 @@ export const ChordEditorPopup: Component = () => {
     editorStore.deselectChord();
   };
 
+  // Handle reroll - generate a random chord based on worksheet settings
+  const handleReroll = async () => {
+    const chordId = editorStore.state.selectedChordId;
+    const anchor = editorStore.state.popupAnchor;
+    if (!chordId || !anchor) return;
+
+    // Generate random chord from settings
+    const randomDef = worksheetSettingsStore.generateRandomChord();
+    
+    // Update local state to reflect the new chord
+    setNoteLabel(
+      NOTE_OPTIONS.find(
+        (n) => n.note === randomDef.root && n.accidental === randomDef.rootAccidental
+      )?.label ?? 'C'
+    );
+    setQuality(randomDef.quality);
+    setInversion(randomDef.inversion);
+
+    // Determine clef and octave
+    const section = scoreStore.state.sections.find((s) => s.id === anchor.sectionId);
+    const existingChord = scoreStore.getChordElement(chordId);
+    const worksheetClef = worksheetSettingsStore.state.clef;
+    
+    // Determine which clef to use:
+    // 1. If worksheet is in "both" mode, use existing chord's clefOverride or randomly pick
+    // 2. Otherwise use the section's clef
+    let chordClef: 'treble' | 'bass';
+    if (worksheetClef === 'both') {
+      // Keep existing clef override, or randomly assign if none
+      chordClef = existingChord?.clefOverride || (Math.random() < 0.5 ? 'treble' : 'bass');
+    } else {
+      chordClef = worksheetClef === 'bass' ? 'bass' : 'treble';
+    }
+    
+    const rootOctave = chordClef === 'bass' ? 3 : 4;
+
+    await scoreStore.updateChord(anchor.sectionId, chordId, randomDef, rootOctave, chordClef);
+  };
+
   // Handle click outside to close
   const handleClickOutside = (e: MouseEvent) => {
     if (popupRef && !popupRef.contains(e.target as Node)) {
@@ -304,6 +364,15 @@ export const ChordEditorPopup: Component = () => {
               <option value={inv.value}>{getInversionLabel(inv)}</option>
             ))}
           </select>
+
+          {/* Reroll Button */}
+          <button
+            class="chord-editor-popup__reroll"
+            onClick={handleReroll}
+            title="Randomize chord"
+          >
+            <DiceIcon />
+          </button>
 
           {/* Delete Button */}
           <button

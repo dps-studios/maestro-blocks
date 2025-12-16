@@ -9,6 +9,7 @@ import {
 import { generateChordPitchesRust } from '../services/music';
 import type { WorksheetSection, Pitch, ChordElement, ChordDefinition } from '../types/score';
 import ChordEditorPopup from './ChordEditorPopup';
+import { EditableHeader } from './EditableHeader';
 
 export default function ScoreCanvas() {
   // Reactive state
@@ -37,6 +38,11 @@ export default function ScoreCanvas() {
   onMount(() => {
     setIsLoading(false);
     console.log('[ScoreCanvas] VexFlow renderer ready');
+    // Trigger initial render after DOM is ready - use double rAF to ensure
+    // SolidJS has finished rendering the section containers
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => renderAllSections());
+    });
   });
 
   // Reactive store accessors
@@ -119,8 +125,8 @@ export default function ScoreCanvas() {
     return chord as ChordElement | null;
   }
 
-  // Get the screen Y position of the top note of a chord
-  function getTopNoteScreenY(
+  // Get the optimal screen Y position for the popup (higher of note or staff top)
+  function getChordPopupY(
     pitches: Pitch[],
     section: WorksheetSection,
     measureIndex: number
@@ -139,7 +145,7 @@ export default function ScoreCanvas() {
     const measureBound = coords.measureBounds[measureIndex];
     if (!measureBound) return null;
 
-    // Find highest pitch (highest on staff = lowest Y value in screen coords)
+    // 1. Find highest pitch (highest on staff = lowest Y value in screen coords)
     const topPitch = pitches.reduce((highest, p) => {
       // Compare by octave first, then by note position within octave
       const noteOrder: Record<string, number> = { c: 0, d: 1, e: 2, f: 3, g: 4, a: 5, b: 6 };
@@ -148,17 +154,47 @@ export default function ScoreCanvas() {
       return pValue > hValue ? p : highest;
     }, pitches[0]);
 
-    // Convert pitch to VexFlow Y coordinate
+    // 2. Convert pitch to VexFlow Y coordinate
     const systemCoords = {
       ...coords,
       staffTopY: measureBound.staffTopY,
       staffBottomY: measureBound.staffBottomY,
     };
-    const vexY = pitchToYPosition(topPitch, systemCoords, section.staff.clef);
+    const noteVexY = pitchToYPosition(topPitch, systemCoords, section.staff.clef);
+    
+    // 3. Get Staff Top Y (VexFlow coordinate)
+    const staffTopVexY = measureBound.staffTopY;
+
+    // 4. Scale to screen coordinates and pick the higher one (smaller Y)
+    const scaleY = svgRect.height / coords.totalHeight;
+    const noteScreenY = svgRect.top + noteVexY * scaleY;
+    const staffScreenY = svgRect.top + staffTopVexY * scaleY;
+
+    return Math.min(noteScreenY, staffScreenY);
+  }
+
+  // Get the horizontal center of a measure in screen coordinates
+  function getMeasureCenterX(section: WorksheetSection, measureIndex: number): number | null {
+    const coords = staffCoordinates().get(section.id);
+    if (!coords) return null;
+
+    const containers = getStaffContainers();
+    const container = containers.get(section.id);
+    if (!container) return null;
+
+    const svg = container.querySelector('svg');
+    if (!svg) return null;
+
+    const svgRect = svg.getBoundingClientRect();
+    const measureBound = coords.measureBounds[measureIndex];
+    if (!measureBound) return null;
+
+    // Calculate measure center in VexFlow coordinates
+    const measureCenterX = (measureBound.startX + measureBound.endX) / 2;
 
     // Scale to screen coordinates
-    const scaleY = svgRect.height / coords.totalHeight;
-    return svgRect.top + vexY * scaleY;
+    const scaleX = svgRect.width / coords.totalWidth;
+    return svgRect.left + measureCenterX * scaleX;
   }
 
   // Handle staff click - select existing chord or create new one
@@ -180,10 +216,10 @@ export default function ScoreCanvas() {
     
     if (existingChord && !isInsertMode()) {
       // Single click on existing chord → SELECT it
-      // Position popup above top note of chord
-      const topNoteY = getTopNoteScreenY(existingChord.pitches, section, ghost.measureIndex);
-      const anchorX = event.clientX;
-      const anchorY = topNoteY !== null ? topNoteY - 15 : event.clientY - 40;
+      // Position popup above top note of chord OR staff, centered on measure
+      const popupY = getChordPopupY(existingChord.pitches, section, ghost.measureIndex);
+      const anchorX = getMeasureCenterX(section, ghost.measureIndex) ?? event.clientX;
+      const anchorY = popupY !== null ? popupY - 15 : event.clientY - 40;
       
       editorStore.selectChord(existingChord.id, {
         x: anchorX,
@@ -274,9 +310,9 @@ export default function ScoreCanvas() {
       // If not quick place, select the new chord and open popup above top note
       if (!isQuickPlace) {
         // Calculate top note Y from the pitches we just got
-        const topNoteY = getTopNoteScreenY(pitches, section, ghost.measureIndex);
-        const anchorX = event.clientX;
-        const anchorY = topNoteY !== null ? topNoteY - 15 : event.clientY - 40;
+        const popupY = getChordPopupY(pitches, section, ghost.measureIndex);
+        const anchorX = getMeasureCenterX(section, ghost.measureIndex) ?? event.clientX;
+        const anchorY = popupY !== null ? popupY - 15 : event.clientY - 40;
         
         editorStore.selectChord(elementId, {
           x: anchorX,
@@ -402,10 +438,7 @@ export default function ScoreCanvas() {
       <Show when={!isLoading()}>
         {/* 8.5x11 Paper Worksheet */}
         <div class="worksheet-paper">
-          <div class="worksheet-header">
-            <h1 class="worksheet-title">Name the Chords</h1>
-            <p class="worksheet-instructions">Write the chord symbol for each chord shown below.</p>
-          </div>
+          <EditableHeader />
           
           <div class="worksheet-content">
             <Show when={sections().length === 0}>

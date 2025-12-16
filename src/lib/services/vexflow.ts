@@ -36,7 +36,7 @@ export const LAYOUT = {
   
   // Multi-system layout
   MEASURES_PER_SYSTEM: 4,  // How many measures per staff line
-  SYSTEM_SPACING: 20,      // Vertical gap between systems
+  SYSTEM_SPACING: 10,      // Vertical gap between systems (reduced for compact layout)
   
   // Margins
   LEFT_MARGIN: 10,     // Minimal left margin - VexFlow handles clef spacing
@@ -225,6 +225,7 @@ const CLEF_REFERENCES: Record<ClefType, { note: NoteName; octave: number }> = {
   bass: { note: 'a', octave: 3 },    // Top line is A3
   alto: { note: 'g', octave: 4 },    // Top line is G4
   tenor: { note: 'a', octave: 4 },   // Top line is A4
+  both: { note: 'f', octave: 5 },    // Default to treble (actual clef determined per-system)
 };
 
 function staffPositionToPitch(staffPosition: number, clef: ClefType): Pitch {
@@ -334,19 +335,33 @@ export function renderSection(
     const endMeasure = Math.min(startMeasure + measuresPerSystem, numMeasures);
     const measuresInSystem = endMeasure - startMeasure;
     
+    // Determine clef for this system
+    // For "both" mode, use the first chord's clefOverride on this line
+    let systemClef: 'treble' | 'bass' = section.staff.clef === 'bass' ? 'bass' : 'treble';
+    
+    // Look for first chord in this system to get its clef override
+    for (let i = startMeasure; i < endMeasure; i++) {
+      const measure = section.staff.measures[i];
+      const firstChord = measure.elements.find(e => e.type === 'chord');
+      if (firstChord && firstChord.type === 'chord' && firstChord.clefOverride) {
+        systemClef = firstChord.clefOverride;
+        break;
+      }
+    }
+    
     // Create the stave for this system
     const stave = new Stave(0, systemY, totalWidth);
     
     // Only show clef and time signature on first system
     if (systemIndex === 0) {
-      stave.addClef(clefToVex(section.staff.clef));
+      stave.addClef(clefToVex(systemClef));
       stave.addTimeSignature(`${timeSignature.beats}/${timeSignature.beatType}`);
       if (keySignature !== 0) {
         stave.addKeySignature(fifthsToKeyName(keySignature));
       }
     } else {
       // Subsequent systems: just add clef (standard notation practice)
-      stave.addClef(clefToVex(section.staff.clef));
+      stave.addClef(clefToVex(systemClef));
     }
     
     stave.setContext(context).draw();
@@ -383,6 +398,9 @@ export function renderSection(
     // Draw bar lines for this system
     drawSystemMeasureLines(context, systemMeasureBounds, actualTopLineY, actualBottomLineY, noteEndX);
     
+    // Track chord positions for answer lines (with answers for display and bottom Y for spacing)
+    const chordPositions: Array<{ x: number; answer: string; bottomY: number }> = [];
+    
     // Render notes for measures in this system
     for (let i = 0; i < measuresInSystem; i++) {
       const globalMeasureIndex = startMeasure + i;
@@ -394,13 +412,17 @@ export function renderSection(
       
       if (chordElements.length > 0) {
         // Create a temporary stave positioned at this measure's X
+        // Must set clef so VexFlow positions notes correctly for bass/treble
         const measureStave = new Stave(measureBound.startX, systemY, measureBound.endX - measureBound.startX);
+        measureStave.setClef(clefToVex(systemClef));
         measureStave.setContext(context);
         
         for (const element of chordElements) {
           if (element.type === 'chord') {
             const isSelected = element.id === selectedChordId;
-            const staveNote = createChordStaveNote(element.pitches, element.duration, showAnswers, isSelected);
+            // Use chord's clefOverride if available, otherwise use systemClef
+            const chordClef = element.clefOverride || systemClef;
+            const staveNote = createChordStaveNote(element.pitches, element.duration, showAnswers, isSelected, chordClef);
             
             const voice = new Voice({ numBeats: timeSignature.beats, beatValue: timeSignature.beatType }).setStrict(false);
             voice.addTickables([staveNote]);
@@ -412,6 +434,12 @@ export function renderSection(
             staveNote.setStave(measureStave);
             staveNote.setContext(context);
             voice.draw(context, measureStave);
+            
+            // Track chord X position, answer, and bottom Y for answer line positioning
+            const chordX = staveNote.getAbsoluteX();
+            const boundingBox = staveNote.getBoundingBox();
+            const chordBottomY = boundingBox ? boundingBox.getY() + boundingBox.getH() : actualBottomLineY;
+            chordPositions.push({ x: chordX, answer: element.displayName || '', bottomY: chordBottomY });
           }
         }
       }
@@ -427,6 +455,9 @@ export function renderSection(
         staffBottomY: actualBottomLineY,
       });
     }
+    
+    // Draw answer lines below this system for students to write chord names
+    drawAnswerLines(context, chordPositions, actualBottomLineY, showAnswers);
   }
   
   // Create coordinates object using first system's coordinates
@@ -488,11 +519,117 @@ function drawSystemMeasureLines(
   context.restore();
 }
 
+/**
+ * Draw answer lines below measures for students to write chord names
+ * When showAnswers is true, also display the correct chord name
+ */
+function drawAnswerLines(
+  context: RenderContext,
+  chordPositions: Array<{ x: number; answer: string; bottomY: number }>,
+  staffBottomY: number,
+  showAnswers: boolean
+): void {
+  context.save();
+  context.setStrokeStyle('#999999'); // Light gray for answer lines
+  context.setLineWidth(1);
+  
+  // Find the lowest point of any chord in this system
+  const maxChordBottomY = chordPositions.length > 0
+    ? Math.max(...chordPositions.map(c => c.bottomY))
+    : staffBottomY;
+  
+  // Position answer lines below the lowest chord (or staff bottom if no low chords)
+  // Use at least 35px below the lowest element for adequate spacing
+  const answerLineY = Math.max(staffBottomY + 40, maxChordBottomY + 35);
+  const lineWidth = 40; // Width of answer line (narrower)
+  const xOffset = 8; // Shift right to center under chord
+  
+  // Draw a line below each chord
+  for (const chord of chordPositions) {
+    const lineStartX = chord.x - (lineWidth / 2) + xOffset;
+    const lineEndX = chord.x + (lineWidth / 2) + xOffset;
+    
+    context.beginPath();
+    context.moveTo(lineStartX, answerLineY);
+    context.lineTo(lineEndX, answerLineY);
+    context.stroke();
+    
+    // Draw the answer text if showAnswers is enabled
+    if (showAnswers && chord.answer) {
+      // Get the SVG element to add properly centered text
+      const svg = (context as unknown as { svg: SVGSVGElement }).svg;
+      if (svg) {
+        const lineCenterX = chord.x + xOffset;
+        const textY = answerLineY - 5; // 5px above the line
+        
+        // Parse the answer format: "Cm|6|4" -> base="Cm", top figure="6", bottom figure="4"
+        const parts = chord.answer.split('|');
+        const baseText = parts[0];
+        const topFigure = parts[1] || '';
+        const bottomFigure = parts[2] || '';
+        
+        // Estimate base text width for positioning (and centering adjustment)
+        const baseWidth = baseText.length * 7.5; // ~7.5px per char at 14px font
+        const hasFigures = topFigure || bottomFigure;
+        const figuresWidth = hasFigures ? 8 : 0; // width of figured bass column
+        const totalWidth = baseWidth + figuresWidth;
+        
+        // Adjust X to center the entire chord symbol + figures
+        const adjustedCenterX = lineCenterX - (figuresWidth / 2);
+        
+        // Render base chord name
+        const textElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        textElement.setAttribute('x', String(adjustedCenterX));
+        textElement.setAttribute('y', String(textY));
+        textElement.setAttribute('text-anchor', 'middle');
+        textElement.setAttribute('font-family', "'Libre Baskerville', Georgia, serif");
+        textElement.setAttribute('font-size', '14px');
+        textElement.setAttribute('font-weight', 'normal');
+        textElement.setAttribute('fill', '#2C2416');
+        textElement.textContent = baseText;
+        svg.appendChild(textElement);
+        
+        // Render figured bass as vertically stacked numbers to the right of base text
+        if (hasFigures) {
+          const figuresX = adjustedCenterX + (baseWidth / 2) + 3; // 3px gap after base text
+          
+          if (topFigure) {
+            const topElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            topElement.setAttribute('x', String(figuresX));
+            topElement.setAttribute('y', String(textY - 5)); // above baseline
+            topElement.setAttribute('font-family', "'Libre Baskerville', Georgia, serif");
+            topElement.setAttribute('font-size', '9px');
+            topElement.setAttribute('font-weight', 'normal');
+            topElement.setAttribute('fill', '#2C2416');
+            topElement.textContent = topFigure;
+            svg.appendChild(topElement);
+          }
+          
+          if (bottomFigure) {
+            const bottomElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            bottomElement.setAttribute('x', String(figuresX));
+            bottomElement.setAttribute('y', String(textY + 6)); // below baseline
+            bottomElement.setAttribute('font-family', "'Libre Baskerville', Georgia, serif");
+            bottomElement.setAttribute('font-size', '9px');
+            bottomElement.setAttribute('font-weight', 'normal');
+            bottomElement.setAttribute('fill', '#2C2416');
+            bottomElement.textContent = bottomFigure;
+            svg.appendChild(bottomElement);
+          }
+        }
+      }
+    }
+  }
+  
+  context.restore();
+}
+
 function createChordStaveNote(
   pitches: Pitch[],
   duration: { value: number; dots: number },
   showAnswers: boolean,
-  isSelected: boolean = false
+  isSelected: boolean = false,
+  clef: 'treble' | 'bass' = 'treble'
 ): StaveNote {
   // Convert duration to VexFlow format
   const durationMap: Record<number, string> = {
@@ -508,9 +645,11 @@ function createChordStaveNote(
   // Create the chord (multiple pitches on one stem)
   const keys = pitches.map(pitchToVexKey);
   
+  // Must pass clef to StaveNote so VexFlow positions notes correctly
   const note = new StaveNote({
     keys,
     duration: vexDuration,
+    clef,
   });
   
   // Add accidentals

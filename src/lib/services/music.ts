@@ -20,6 +20,7 @@ interface ChordRequest {
   root: string;
   quality: string;
   root_octave: number;
+  inversion?: string;
 }
 
 /**
@@ -68,6 +69,7 @@ export async function generateChordPitchesRust(
     root: formatRootForRust(def.root, def.rootAccidental),
     quality: def.quality,
     root_octave: rootOctave,
+    inversion: def.inversion,
   };
   
   console.log('[Music] Sending chord request to Rust:', request);

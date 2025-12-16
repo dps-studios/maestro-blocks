@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.1",
+    "snarkdown": "^2.0.0",
     "solid-js": "^1.9.5",
     "uuid": "^13.0.0",
     "vexflow": "^5.0.0"

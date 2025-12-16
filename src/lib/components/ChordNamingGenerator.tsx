@@ -229,11 +229,13 @@ export default function ChordNamingGenerator() {
                   >
                     <option value="major">Major</option>
                     <option value="minor">Minor</option>
-                    <option value="diminished">Diminished</option>
-                    <option value="augmented">Augmented</option>
+                    <option value="diminished">°</option>
+                    <option value="augmented">aug</option>
                     <option value="dominant7">Dominant 7</option>
                     <option value="major7">Major 7</option>
                     <option value="minor7">Minor 7</option>
+                    <option value="diminished7">°7</option>
+                    <option value="half-diminished7">Half Diminished</option>
                   </select>
 
                   <label class="checkbox-label">

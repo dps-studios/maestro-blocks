@@ -80,6 +80,8 @@ export interface ChordElement extends BaseElement {
   chordDef?: ChordDefinition;
   /** Display name (e.g., "Cmaj7") - hidden in student mode */
   displayName?: string;
+  /** Clef override for "both" mode - determines which clef this chord uses */
+  clefOverride?: 'treble' | 'bass';
 }
 
 export type MusicElement = NoteElement | RestElement | ChordElement;
@@ -88,7 +90,7 @@ export type MusicElement = NoteElement | RestElement | ChordElement;
 // MEASURES & STAVES
 // ============================================================================
 
-export type ClefType = 'treble' | 'bass' | 'alto' | 'tenor';
+export type ClefType = 'treble' | 'bass' | 'alto' | 'tenor' | 'both';
 
 export interface TimeSignature {
   beats: number;
@@ -156,11 +158,13 @@ export interface WorksheetSection {
 // SCORE (TOP-LEVEL DOCUMENT)
 // ============================================================================
 
+export type HeaderAlignment = 'start' | 'center' | 'end';
+
 export interface ScoreMetadata {
-  title: string;
-  subtitle?: string;
-  composer?: string;
-  instructions?: string;
+  /** Markdown content for the header */
+  headerContent: string;
+  /** Text alignment for the rendered header */
+  alignment: HeaderAlignment;
 }
 
 export interface Score {
@@ -215,15 +219,15 @@ export function formatChordName(def: ChordDefinition): string {
   const accidental = def.rootAccidental === 'sharp' ? '#' : def.rootAccidental === 'flat' ? 'b' : '';
   
   const qualityMap: Record<ChordQuality, string> = {
-    'major': '',
-    'minor': 'm',
-    'diminished': 'dim',
+    'major': ' Major',
+    'minor': ' Minor',
+    'diminished': '°',
     'augmented': 'aug',
-    'major7': 'maj7',
-    'minor7': 'm7',
+    'major7': ' Major 7',
+    'minor7': ' Minor 7',
     'dominant7': '7',
-    'diminished7': 'dim7',
-    'half-diminished7': 'm7b5',
+    'diminished7': '°7',
+    'half-diminished7': 'ø7',
     'augmented7': 'aug7',
     'sus2': 'sus2',
     'sus4': 'sus4',
@@ -322,11 +326,12 @@ export function createEmptyScore(): Score {
   return {
     id: crypto.randomUUID(),
     metadata: {
-      title: 'Untitled Worksheet',
+      headerContent: '',
+      alignment: 'start',
     },
     timeSignature: { beats: 4, beatType: 4 },
     keySignature: { fifths: 0, mode: 'major' },
-    sections: [],
+    sections: [createChordNamingSection()],
     showAnswers: false,
   };
 }
