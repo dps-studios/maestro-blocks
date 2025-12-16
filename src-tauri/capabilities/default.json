@@ -6,6 +6,8 @@
   "permissions": [
     "core:default",
     "core:window:allow-title",
-    "core:window:default"
+    "core:window:default",
+    "dialog:default",
+    "fs:default"
   ]
 }

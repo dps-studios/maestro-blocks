@@ -11,7 +11,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": "all",
+    "resources": ["resources/fonts/*"]
   },
   "app": {
     "withGlobalTauri": true,

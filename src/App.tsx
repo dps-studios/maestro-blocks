@@ -1,11 +1,14 @@
-import { onMount, Show } from 'solid-js';
+import { onMount, Show, createSignal } from 'solid-js';
 import ScoreCanvas from './lib/components/ScoreCanvas';
 import Sidebar from './lib/components/Sidebar';
-import { scoreStore } from './lib/stores/score';
+import WorksheetModeSidebar from './lib/components/WorksheetModeSidebar';
+import { scoreStore, editorStore } from './lib/stores/score';
 import { theme, isDark } from './lib/hooks/useTheme';
+import { captureWorksheetSvg, exportPdf } from './lib/services/export';
 
 export default function App() {
   const score = () => scoreStore.state;
+  const [sidebarMode, setSidebarMode] = createSignal<'edit' | 'worksheet'>('worksheet');
 
   onMount(() => {
     console.log('Maestro Blocks - Paper & Ink Edition loaded');
@@ -14,6 +17,49 @@ export default function App() {
 
   function toggleTheme() {
     theme.toggle();
+  }
+
+  // Worksheet mode handlers
+  async function handleGenerateWorksheet() {
+    await scoreStore.generateRandomWorksheet();
+  }
+
+  function handleClearAll() {
+    scoreStore.clearAllChords();
+  }
+
+  function handleToggleAnswers() {
+    scoreStore.toggleAnswers();
+  }
+
+  // Check if there's a selected chord
+  const hasSelection = () => editorStore.state.selectedChordId !== null;
+
+  // Export handlers
+  const [isExporting, setIsExporting] = createSignal(false);
+  
+  async function handleExportPdf() {
+    if (isExporting()) return;
+    
+    setIsExporting(true);
+    try {
+      const svgContent = captureWorksheetSvg();
+      if (!svgContent) {
+        console.error('Failed to capture worksheet SVG');
+        return;
+      }
+      
+      const title = score().metadata.title || 'worksheet';
+      const success = await exportPdf(svgContent, title);
+      
+      if (success) {
+        console.log('PDF exported successfully');
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   // Detect macOS for traffic light spacer
@@ -69,21 +115,45 @@ export default function App() {
               </svg>
             </Show>
           </button>
-          <button class="header-btn" title="Export PDF (coming soon)" disabled>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="12" y1="18" x2="12" y2="12"/>
-              <line x1="9" y1="15" x2="15" y2="15"/>
-            </svg>
-            <span class="btn-label">Export</span>
+          <button 
+            class="header-btn" 
+            title="Export as PDF" 
+            onClick={handleExportPdf}
+            disabled={isExporting()}
+          >
+            <Show
+              when={!isExporting()}
+              fallback={
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                </svg>
+              }
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="12" y1="18" x2="12" y2="12"/>
+                <line x1="9" y1="15" x2="15" y2="15"/>
+              </svg>
+            </Show>
+            <span class="btn-label">{isExporting() ? 'Exporting...' : 'Export'}</span>
           </button>
         </div>
       </header>
 
       {/* Main Layout */}
       <div class="app-body">
-        <Sidebar />
+        <Show 
+          when={sidebarMode() === 'worksheet'}
+          fallback={<Sidebar />}
+        >
+          <WorksheetModeSidebar
+            onGenerateWorksheet={handleGenerateWorksheet}
+            onClearAll={handleClearAll}
+            onToggleAnswers={handleToggleAnswers}
+            hasSelection={hasSelection()}
+          />
+        </Show>
         <main class="main-content paper-texture">
           <ScoreCanvas />
         </main>

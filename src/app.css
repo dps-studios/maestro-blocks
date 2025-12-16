@@ -642,7 +642,7 @@ svg {
 .worksheet-content {
   display: flex;
   flex-direction: column;
-  gap: 48px; /* Space between staff systems */
+  gap: 24px; /* Space between staff systems - reduced for compact layout */
 }
 
 .empty-worksheet {
@@ -716,7 +716,7 @@ svg {
 .sections {
   display: flex;
   flex-direction: column;
-  gap: 48px; /* Space between staff systems */
+  gap: 24px; /* Space between staff systems - reduced for compact layout */
 }
 
 /* Individual staff system (no longer paper-styled, just content) */
@@ -838,4 +838,294 @@ svg {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Spin animation class for inline SVG icons */
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+
+/* ==========================================================================
+   WORKSHEET MODE SIDEBAR
+   ========================================================================== */
+
+.worksheet-sidebar {
+  width: 280px;
+  background-color: var(--color-paper);
+  border-right: 1px solid var(--color-accent-line);
+  padding: var(--space-3);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.worksheet-sidebar .sidebar-section {
+  background-color: var(--color-paper);
+  border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+}
+
+.worksheet-sidebar .sidebar-section-title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--color-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+}
+
+.worksheet-sidebar .sidebar-field {
+  margin-bottom: var(--space-2);
+}
+
+.worksheet-sidebar .sidebar-field:last-child {
+  margin-bottom: 0;
+}
+
+.worksheet-sidebar .sidebar-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+}
+
+.worksheet-sidebar .sidebar-select {
+  width: 100%;
+  padding: var(--space-1-5) var(--space-2);
+  border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-md);
+  background-color: var(--color-paper);
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+}
+
+.worksheet-sidebar .sidebar-select:focus {
+  outline: none;
+  border-color: var(--color-accent-gold);
+}
+
+.worksheet-sidebar .sidebar-slider {
+  width: 100%;
+  margin: var(--space-1) 0;
+}
+
+.worksheet-sidebar .sidebar-hint {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--color-ink-muted);
+}
+
+/* Root Grid */
+.worksheet-sidebar .root-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  margin-top: var(--space-2);
+}
+
+.worksheet-sidebar .root-button {
+  padding: 4px 2px;
+  border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-paper);
+  font-family: var(--font-serif);
+  font-size: 11px;
+  color: var(--color-ink-light);
+  cursor: pointer;
+  transition: var(--transition-colors);
+  text-align: center;
+}
+
+.worksheet-sidebar .root-button:hover {
+  background-color: var(--color-paper-dark);
+  border-color: var(--color-ink-muted);
+}
+
+.worksheet-sidebar .root-button.selected {
+  background-color: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-paper);
+}
+
+/* Quality Toggles */
+.worksheet-sidebar .quality-toggles {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.worksheet-sidebar .toggle-button {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-md);
+  background-color: var(--color-paper);
+  font-size: var(--text-xs);
+  color: var(--color-ink-light);
+  cursor: pointer;
+  transition: var(--transition-colors);
+}
+
+.worksheet-sidebar .toggle-button:hover {
+  background-color: var(--color-paper-dark);
+}
+
+.worksheet-sidebar .toggle-button.selected {
+  background-color: var(--color-tier-safe);
+  border-color: var(--color-tier-safe);
+  color: var(--color-paper);
+}
+
+/* Quality Group */
+.worksheet-sidebar .quality-group {
+  margin-bottom: var(--space-2);
+}
+
+.worksheet-sidebar .quality-group:last-child {
+  margin-bottom: 0;
+}
+
+.worksheet-sidebar .quality-group-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: 10px;
+  font-weight: var(--font-medium);
+  color: var(--color-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+}
+
+.worksheet-sidebar .quality-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.worksheet-sidebar .quality-button {
+  padding: var(--space-1) var(--space-1-5);
+  border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-paper);
+  font-family: var(--font-serif);
+  font-size: var(--text-sm);
+  color: var(--color-ink-light);
+  cursor: pointer;
+  transition: var(--transition-colors);
+  text-align: center;
+}
+
+.worksheet-sidebar .quality-button:hover {
+  background-color: var(--color-paper-dark);
+  border-color: var(--color-ink-muted);
+}
+
+.worksheet-sidebar .quality-button.selected {
+  background-color: var(--color-tier-colorful);
+  border-color: var(--color-tier-colorful);
+  color: var(--color-paper);
+}
+
+/* Inversion Options */
+.worksheet-sidebar .inversion-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+
+.worksheet-sidebar .radio-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.worksheet-sidebar .radio-option input[type="radio"] {
+  accent-color: var(--color-accent-gold);
+}
+
+/* Sidebar Actions */
+.worksheet-sidebar .sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+
+.worksheet-sidebar .action-button {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: var(--transition-colors);
+}
+
+.worksheet-sidebar .action-button.primary {
+  background-color: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.worksheet-sidebar .action-button.primary:hover {
+  background-color: var(--color-ink-light);
+  border-color: var(--color-ink-light);
+}
+
+.worksheet-sidebar .action-button.secondary {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+}
+
+.worksheet-sidebar .action-button.secondary:hover {
+  background-color: var(--color-paper-dark);
+}
+
+/* Button Group */
+.worksheet-sidebar .button-group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.worksheet-sidebar .button-group.vertical {
+  flex-direction: column;
+}
+
+.worksheet-sidebar .button-group-item {
+  flex: 1;
+  min-width: 36px;
+  padding: var(--space-1) var(--space-1-5);
+  border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-paper);
+  font-size: var(--text-sm);
+  color: var(--color-ink-light);
+  cursor: pointer;
+  transition: var(--transition-colors);
+  text-align: center;
+}
+
+.worksheet-sidebar .button-group.vertical .button-group-item {
+  flex: none;
+  width: 100%;
+}
+
+.worksheet-sidebar .button-group-item:hover {
+  background-color: var(--color-paper-dark);
+  border-color: var(--color-ink-muted);
+}
+
+.worksheet-sidebar .button-group-item.selected {
+  background-color: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-paper);
 }
